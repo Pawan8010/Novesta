@@ -6,7 +6,11 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  Edit3,
   MessageCircle,
+  Plus,
+  Save,
+  Trash2,
   X,
 } from 'lucide-react';
 import { siteConfig, type CareerRole } from '../config/site';
@@ -49,6 +53,20 @@ export function CareersPage({ onBackHome, onManageRoles }: CareersPageProps) {
   const [feedback, setFeedback] = useState('');
   const [acceptedReceipt, setAcceptedReceipt] = useState<AcceptedApplication | null>(null);
 
+  // Inline founder role management state
+  const [showAddRole, setShowAddRole] = useState(false);
+  const [newRoleTitle, setNewRoleTitle] = useState('');
+  const [newRoleTeam, setNewRoleTeam] = useState('');
+  const [newRoleLocation, setNewRoleLocation] = useState('Jalgaon / Remote');
+  const [newRoleStatus, setNewRoleStatus] = useState('Accepting applications');
+  const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
+  const [editRoleTitle, setEditRoleTitle] = useState('');
+  const [editRoleTeam, setEditRoleTeam] = useState('');
+  const [editRoleLocation, setEditRoleLocation] = useState('');
+  const [editRoleStatus, setEditRoleStatus] = useState('Accepting applications');
+  const [roleActionBusy, setRoleActionBusy] = useState(false);
+  const [roleActionMessage, setRoleActionMessage] = useState('');
+
   useEffect(() => {
     let active = true;
     fetch('/api/careers/roles')
@@ -87,6 +105,94 @@ export function CareersPage({ onBackHome, onManageRoles }: CareersPageProps) {
     setTimeout(() => {
       fullNameInputRef.current?.focus();
     }, 50);
+  };
+
+  const handleFounderAddRole = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setRoleActionBusy(true);
+    setRoleActionMessage('');
+    try {
+      const res = await fetch('/api/admin/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          title: newRoleTitle.trim(),
+          team: newRoleTeam.trim(),
+          location: newRoleLocation.trim(),
+          status: newRoleStatus,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not add role.');
+      if (Array.isArray(data.roles)) setRoles(data.roles);
+      setNewRoleTitle('');
+      setNewRoleTeam('');
+      setNewRoleLocation('Jalgaon / Remote');
+      setNewRoleStatus('Accepting applications');
+      setShowAddRole(false);
+      setRoleActionMessage(`Added "${data.role?.title}".`);
+    } catch (err) {
+      setRoleActionMessage(err instanceof Error ? err.message : 'Failed to add role.');
+    } finally {
+      setRoleActionBusy(false);
+    }
+  };
+
+  const startInlineEdit = (seat: LiveCareerRole) => {
+    setEditingRoleId(seat.id);
+    setEditRoleTitle(seat.title);
+    setEditRoleTeam(seat.team);
+    setEditRoleLocation(seat.location);
+    setEditRoleStatus(seat.status || 'Accepting applications');
+    setRoleActionMessage('');
+  };
+
+  const handleFounderSaveRole = async (roleId: string) => {
+    setRoleActionBusy(true);
+    setRoleActionMessage('');
+    try {
+      const res = await fetch(`/api/admin/roles/${encodeURIComponent(roleId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          title: editRoleTitle.trim(),
+          team: editRoleTeam.trim(),
+          location: editRoleLocation.trim(),
+          status: editRoleStatus,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not save role.');
+      if (Array.isArray(data.roles)) setRoles(data.roles);
+      setEditingRoleId(null);
+      setRoleActionMessage(`Updated "${data.role?.title}".`);
+    } catch (err) {
+      setRoleActionMessage(err instanceof Error ? err.message : 'Failed to save role.');
+    } finally {
+      setRoleActionBusy(false);
+    }
+  };
+
+  const handleFounderDeleteRole = async (seat: LiveCareerRole) => {
+    setRoleActionBusy(true);
+    setRoleActionMessage('');
+    try {
+      const res = await fetch(`/api/admin/roles/${encodeURIComponent(seat.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not delete role.');
+      if (Array.isArray(data.roles)) setRoles(data.roles);
+      if (editingRoleId === seat.id) setEditingRoleId(null);
+      setRoleActionMessage(`Deleted "${seat.title}".`);
+    } catch (err) {
+      setRoleActionMessage(err instanceof Error ? err.message : 'Failed to delete role.');
+    } finally {
+      setRoleActionBusy(false);
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -179,7 +285,7 @@ export function CareersPage({ onBackHome, onManageRoles }: CareersPageProps) {
 
   const receiptWhatsappHref = acceptedReceipt
     ? `${siteConfig.contact.whatsappUrl}?text=${encodeURIComponent(
-        `Hi Weblance, I submitted an application for ${acceptedReceipt.role} (Reference: ${acceptedReceipt.id}).`
+        `Hi Novesta, I submitted an application for ${acceptedReceipt.role} (Reference: ${acceptedReceipt.id}).`
       )}`
     : siteConfig.contact.whatsappUrl;
 
@@ -289,50 +395,238 @@ export function CareersPage({ onBackHome, onManageRoles }: CareersPageProps) {
                 </h2>
               </div>
 
-              {isFounder && onManageRoles && (
-                <button
-                  type="button"
-                  onClick={onManageRoles}
-                  className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-[var(--color-accent-signal)] px-4 py-2 text-[13px] font-medium text-[var(--color-accent-signal)] transition-colors hover:bg-[var(--color-accent-signal)] hover:text-[var(--color-surface-inverse)]"
-                >
-                  Edit or Add Roles (Founder)
-                </button>
+              {isFounder && (
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddRole((prev) => !prev)}
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-[var(--color-accent-signal)] px-4 py-2 text-[13px] font-medium text-[var(--color-surface-inverse)] transition-opacity hover:opacity-90"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <span>{showAddRole ? 'Close Add Form' : 'Add Role'}</span>
+                  </button>
+                  {onManageRoles && (
+                    <button
+                      type="button"
+                      onClick={onManageRoles}
+                      className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-[var(--color-accent-signal)] px-4 py-2 text-[13px] font-medium text-[var(--color-accent-signal)] transition-colors hover:bg-[var(--color-accent-signal)] hover:text-[var(--color-surface-inverse)]"
+                    >
+                      Founder Workspace
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
-            <div className="mt-8 divide-y divide-[var(--color-globe-hairline)] border-y border-[var(--color-globe-hairline)]">
-              {roles.map((seat) => (
-                <div
-                  key={seat.id}
-                  className="flex flex-col justify-between gap-4 py-6 sm:flex-row sm:items-center sm:py-7"
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span className="mono-eyebrow text-[var(--color-accent-signal)]">
-                        {seat.code}
-                      </span>
-                      <span className="text-[14px] text-[var(--color-surface-strong)]">
-                        {seat.team} · {seat.location}
-                      </span>
-                      <span className="text-[12px] text-[var(--color-accent-signal)]">
-                        · {seat.status || 'Accepting applications'}
-                      </span>
-                    </div>
-                    <h3 className="mt-2 text-[22px] font-normal tracking-[-0.025em] text-[var(--color-inverse-ink)] sm:text-[30px]">
-                      {seat.title}
-                    </h3>
-                  </div>
+            {isFounder && roleActionMessage && (
+              <p className="mt-4 text-[13px] text-[var(--color-accent-signal)]">
+                {roleActionMessage}
+              </p>
+            )}
 
-                  <button
-                    type="button"
-                    onClick={() => handleSelectRole(seat)}
-                    className="inline-flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[var(--color-accent-signal)] px-6 py-2.5 text-[14px] font-medium text-[var(--color-surface-inverse)] transition-opacity hover:opacity-90 sm:w-auto"
+            {isFounder && showAddRole && (
+              <form
+                onSubmit={handleFounderAddRole}
+                className="mt-6 grid grid-cols-1 gap-4 rounded-[var(--radius-sm)] border border-[var(--color-globe-hairline)] p-5 sm:grid-cols-2 lg:grid-cols-4"
+              >
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                    Role Title *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={roleActionBusy}
+                    value={newRoleTitle}
+                    onChange={(e) => setNewRoleTitle(e.target.value)}
+                    placeholder="e.g., Video Editor"
+                    className={darkInputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                    Team *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={roleActionBusy}
+                    value={newRoleTeam}
+                    onChange={(e) => setNewRoleTeam(e.target.value)}
+                    placeholder="e.g., Post-production"
+                    className={darkInputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                    Location *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={roleActionBusy}
+                    value={newRoleLocation}
+                    onChange={(e) => setNewRoleLocation(e.target.value)}
+                    placeholder="Jalgaon / Remote"
+                    className={darkInputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                    Status
+                  </label>
+                  <select
+                    disabled={roleActionBusy}
+                    value={newRoleStatus}
+                    onChange={(e) => setNewRoleStatus(e.target.value)}
+                    className={darkInputClass}
                   >
-                    <span>Apply</span>
-                    <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                    <option value="Accepting applications">Accepting applications</option>
+                    <option value="Urgent hiring">Urgent hiring</option>
+                    <option value="Paused">Paused</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <button
+                    type="submit"
+                    disabled={roleActionBusy}
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-[var(--color-accent-signal)] px-5 py-2 text-[13px] font-medium text-[var(--color-surface-inverse)] disabled:opacity-60"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <span>{roleActionBusy ? 'Publishing...' : 'Publish Role'}</span>
                   </button>
                 </div>
-              ))}
+              </form>
+            )}
+
+            <div className="mt-8 divide-y divide-[var(--color-globe-hairline)] border-y border-[var(--color-globe-hairline)]">
+              {roles.map((seat) => {
+                const isEditing = isFounder && editingRoleId === seat.id;
+                return (
+                  <div key={seat.id} className="py-6 sm:py-7">
+                    {isEditing ? (
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div>
+                          <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                            Title
+                          </label>
+                          <input
+                            type="text"
+                            value={editRoleTitle}
+                            onChange={(e) => setEditRoleTitle(e.target.value)}
+                            className={darkInputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                            Team
+                          </label>
+                          <input
+                            type="text"
+                            value={editRoleTeam}
+                            onChange={(e) => setEditRoleTeam(e.target.value)}
+                            className={darkInputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                            Location
+                          </label>
+                          <input
+                            type="text"
+                            value={editRoleLocation}
+                            onChange={(e) => setEditRoleLocation(e.target.value)}
+                            className={darkInputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[12px] font-medium text-[var(--color-surface-strong)]">
+                            Status
+                          </label>
+                          <select
+                            value={editRoleStatus}
+                            onChange={(e) => setEditRoleStatus(e.target.value)}
+                            className={darkInputClass}
+                          >
+                            <option value="Accepting applications">Accepting applications</option>
+                            <option value="Urgent hiring">Urgent hiring</option>
+                            <option value="Paused">Paused</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
+                          <button
+                            type="button"
+                            disabled={roleActionBusy}
+                            onClick={() => handleFounderSaveRole(seat.id)}
+                            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-[var(--color-accent-signal)] px-5 py-2 text-[13px] font-medium text-[var(--color-surface-inverse)]"
+                          >
+                            <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                            <span>Save</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingRoleId(null)}
+                            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-[var(--color-globe-hairline)] px-4 py-2 text-[13px] font-medium text-[var(--color-inverse-ink)]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="mono-eyebrow text-[var(--color-accent-signal)]">
+                              {seat.code}
+                            </span>
+                            <span className="text-[14px] text-[var(--color-surface-strong)]">
+                              {seat.team} · {seat.location}
+                            </span>
+                            <span className="text-[12px] text-[var(--color-accent-signal)]">
+                              · {seat.status || 'Accepting applications'}
+                            </span>
+                          </div>
+                          <h3 className="mt-2 text-[22px] font-normal tracking-[-0.025em] text-[var(--color-inverse-ink)] sm:text-[30px]">
+                            {seat.title}
+                          </h3>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                          {isFounder && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startInlineEdit(seat)}
+                                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-[var(--color-globe-hairline)] px-4 py-2 text-[13px] font-medium text-[var(--color-inverse-ink)] hover:border-[var(--color-accent-signal)] hover:text-[var(--color-accent-signal)]"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={roleActionBusy}
+                                onClick={() => handleFounderDeleteRole(seat)}
+                                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full border border-[var(--color-error-inverse)] px-4 py-2 text-[13px] font-medium text-[var(--color-error-inverse)] hover:opacity-85"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                                <span>Delete</span>
+                              </button>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleSelectRole(seat)}
+                            className="inline-flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[var(--color-accent-signal)] px-6 py-2.5 text-[14px] font-medium text-[var(--color-surface-inverse)] transition-opacity hover:opacity-90 sm:w-auto"
+                          >
+                            <span>Apply</span>
+                            <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

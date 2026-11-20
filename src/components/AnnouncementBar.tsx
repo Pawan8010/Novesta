@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Sparkles, X } from 'lucide-react';
 import { formatCurrencyValue, siteConfig } from '../config/site';
 
-const STORAGE_KEY = 'weblance_announcement_dismissed_v1';
+const STORAGE_KEY = 'novesta_announcement_dismissed_v1';
 
 interface AnnouncementBarProps {
   onSeePricing: () => void;

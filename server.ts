@@ -1,9 +1,12 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
+import nodemailer from 'nodemailer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +19,7 @@ const SUBMISSIONS_FILE = path.join(DATA_DIR, 'submissions.json');
 const AUTH_SECRET_FILE = path.join(DATA_DIR, 'auth-secret.txt');
 
 const DEFAULT_FOUNDER_EMAILS = [
+  'hello@novesta.online',
   'rajputpavan168@gmail.com',
   'rajputpawan168@gmail.com',
   'rajputpawan9765@gmail.com',
@@ -98,6 +102,8 @@ interface PaymentRecord {
   paymentId?: string;
   planId: string;
   planName: string;
+  billing?: string;
+  services?: string[];
   amountInr: number;
   amountPaise: number;
   currency: 'INR';
@@ -108,6 +114,9 @@ interface PaymentRecord {
   status: 'Created' | 'Paid (Verified)' | 'Captured (Webhook)' | 'Failed';
   webhookVerified?: boolean;
   webhookEvent?: string;
+  customerEmailSent?: boolean;
+  adminEmailSent?: boolean;
+  confirmationEmailsSentAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -116,43 +125,74 @@ interface SubmissionsStore {
   contacts: ContactRecord[];
   applications: CareerApplicationRecord[];
   roles: CareerRoleRecord[];
-  feedbacks: FeedbackEntry[];
   payments: PaymentRecord[];
+  feedbacks: FeedbackEntry[];
 }
 
 const AUTHORITATIVE_PLANS: Record<
   string,
-  { id: string; name: string; billing: string; amountInr: number }
+  { id: string; name: string; billing: string; amountInr: number; features: string[] }
 > = {
   'large-business-all-services': {
     id: 'large-business-all-services',
     name: 'Large Business · All Services',
     billing: 'for 2 years',
     amountInr: 30000,
+    features: [
+      'Website & custom web app built free',
+      'Full SEO, Google ranking & Google Maps dominance',
+      'Social media marketing (Instagram, Facebook, X)',
+      'Zomato, Swiggy, Booking.com, MakeMyTrip, JustDial sync',
+      'AI chatbot, WhatsApp automation & analytics dashboard',
+      'Dedicated 2-year support & business scaling',
+    ],
   },
   'medium-business-full-growth': {
     id: 'medium-business-full-growth',
     name: 'Medium Business · All Services & CRM',
     billing: 'for 2 years',
     amountInr: 17000,
+    features: [
+      'Website + direct ordering or booking product included',
+      'Customer management & automated WhatsApp follow-ups',
+      'SEO, Google Maps & Business Profile optimization',
+      'Social media growth & local directory alignment',
+      '2-year complete business & customer operations support',
+    ],
   },
   'small-business-service-2yr': {
     id: 'small-business-service-2yr',
     name: 'Small Business · Services & Support',
     billing: 'for 2 years',
     amountInr: 7000,
+    features: [
+      'Fast mobile-first business website included',
+      'Google Maps & Business Profile setup',
+      'Essential local SEO & WhatsApp inquiry capture',
+      '2-year priority technical support & content updates',
+    ],
   },
   'medium-business-website': {
     id: 'medium-business-website',
     name: 'Medium Business · Website Only',
     billing: 'one-time',
     amountInr: 10000,
+    features: [
+      'Multi-page mobile-first responsive architecture',
+      'Product catalog, menu, or booking inquiry flow',
+      'Technical SEO, Schema markup & Google Map embed',
+    ],
   },
   'small-business-website': {
     id: 'small-business-website',
     name: 'Small Business · Website Only',
     billing: 'one-time',
     amountInr: 5000,
+    features: [
+      'Clean mobile-first responsive business website',
+      'SEO-ready setup & fast page loading',
+      'Contact form, WhatsApp button & Google Map',
+    ],
   },
 };
 
@@ -183,29 +223,6 @@ const DEFAULT_CAREER_ROLES: CareerRoleRecord[] = [
   },
 ];
 
-const SAMPLE_FEEDBACKS: FeedbackEntry[] = [
-  {
-    id: 'sample-1',
-    name: 'Aarav Kulkarni',
-    business: 'Hospitality Partner (Sample)',
-    rating: 5,
-    comment:
-      'Clean site architecture and fast Google Business Profile updates helped customers find our booking page directly.',
-    createdAt: '2026-11-10T10:00:00.000Z',
-    isSample: true,
-  },
-  {
-    id: 'sample-2',
-    name: 'Sneha Deshmukh',
-    business: 'Cafe & Bakery (Sample)',
-    rating: 5,
-    comment:
-      'Having WhatsApp inquiry automation linked to our menu saved hours every weekend.',
-    createdAt: '2026-11-14T14:30:00.000Z',
-    isSample: true,
-  },
-];
-
 function loadStore(): SubmissionsStore {
   try {
     if (fs.existsSync(SUBMISSIONS_FILE)) {
@@ -217,8 +234,8 @@ function loadStore(): SubmissionsStore {
           Array.isArray(parsed.roles) && parsed.roles.length > 0
             ? parsed.roles
             : [...DEFAULT_CAREER_ROLES],
-        feedbacks: Array.isArray(parsed.feedbacks) ? parsed.feedbacks : [],
         payments: Array.isArray(parsed.payments) ? parsed.payments : [],
+        feedbacks: Array.isArray(parsed.feedbacks) ? parsed.feedbacks : [],
       };
     }
   } catch (err) {
@@ -228,8 +245,8 @@ function loadStore(): SubmissionsStore {
     contacts: [],
     applications: [],
     roles: [...DEFAULT_CAREER_ROLES],
-    feedbacks: [],
     payments: [],
+    feedbacks: [],
   };
 }
 
@@ -242,6 +259,443 @@ function saveStore(store: SubmissionsStore): void {
   } catch (err) {
     console.warn('Could not persist submissions store:', err);
   }
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getSmtpConfig() {
+  const host = process.env.SMTP_HOST?.trim() || '';
+  const port = Number(process.env.SMTP_PORT?.trim() || '465') || 465;
+  const user = process.env.SMTP_USER?.trim() || '';
+  const pass = process.env.SMTP_PASS?.trim() || '';
+  const secureEnv = process.env.SMTP_SECURE?.trim().toLowerCase();
+  const secure = secureEnv ? secureEnv === 'true' || secureEnv === '1' : port === 465;
+  const from = process.env.SMTP_FROM?.trim() || '';
+  return { host, port, user, pass, secure, from };
+}
+
+function isSmtpConfigured(): boolean {
+  const smtp = getSmtpConfig();
+  return Boolean(smtp.host && smtp.user && smtp.pass);
+}
+
+function getEmailTransportMode(): 'smtp' | 'resend' | 'none' {
+  if (isSmtpConfigured()) return 'smtp';
+  if (process.env.RESEND_API_KEY?.trim()) return 'resend';
+  return 'none';
+}
+
+interface EmailSendParams {
+  to: string[];
+  subject: string;
+  text: string;
+  html?: string;
+  replyTo?: string;
+  fromLabel?: string;
+}
+
+interface EmailSendResult {
+  ok: boolean;
+  transport?: 'smtp' | 'resend';
+  error?: string;
+  status?: number;
+  usedFallback?: boolean;
+  deliveredTo?: string[];
+}
+
+async function sendSmtpEmail(params: EmailSendParams): Promise<EmailSendResult> {
+  const smtp = getSmtpConfig();
+  if (!smtp.host || !smtp.user || !smtp.pass) {
+    return { ok: false, error: 'Hostinger SMTP credentials not configured' };
+  }
+
+  const label = params.fromLabel || 'Novesta';
+  const fromAddress = smtp.from || `${label} <${smtp.user}>`;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: {
+        user: smtp.user,
+        pass: smtp.pass,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+
+    await transporter.sendMail({
+      from: fromAddress,
+      to: params.to.join(', '),
+      ...(params.replyTo ? { replyTo: params.replyTo } : {}),
+      subject: params.subject,
+      text: params.text,
+      ...(params.html ? { html: params.html } : {}),
+    });
+
+    return {
+      ok: true,
+      transport: 'smtp',
+      status: 200,
+      usedFallback: false,
+      deliveredTo: params.to,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      transport: 'smtp',
+      error: err instanceof Error ? err.message : 'SMTP delivery failed',
+    };
+  }
+}
+
+async function sendResendEmail(params: EmailSendParams): Promise<EmailSendResult> {
+  const resendApiKey = process.env.RESEND_API_KEY?.trim();
+  if (!resendApiKey) {
+    return { ok: false, error: 'RESEND_API_KEY not configured' };
+  }
+
+  const label = params.fromLabel || 'Novesta';
+  const fallbackFrom = `${label} <onboarding@resend.dev>`;
+  const preferredFrom = process.env.RESEND_FROM_EMAIL?.trim() || fallbackFrom;
+  const backupEmail =
+    process.env.FOUNDER_BACKUP_EMAIL?.trim() || 'novesta111@gmail.com';
+
+  const attemptSend = async (
+    fromAddress: string,
+    recipients: string[],
+    bodyText: string,
+    bodyHtml?: string
+  ) => {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromAddress,
+        to: recipients,
+        ...(params.replyTo ? { reply_to: params.replyTo } : {}),
+        subject: params.subject,
+        text: bodyText,
+        ...(bodyHtml ? { html: bodyHtml } : {}),
+      }),
+    });
+    if (response.ok) {
+      return { ok: true, status: response.status };
+    }
+    const errText = await response.text();
+    return { ok: false, status: response.status, error: errText };
+  };
+
+  try {
+    const first = await attemptSend(preferredFrom, params.to, params.text, params.html);
+    if (first.ok) {
+      return {
+        ok: true,
+        transport: 'resend',
+        status: first.status,
+        usedFallback: preferredFrom === fallbackFrom && Boolean(process.env.RESEND_FROM_EMAIL?.trim()),
+        deliveredTo: params.to,
+      };
+    }
+
+    let latestError = first.error;
+    let latestStatus = first.status;
+
+    if (preferredFrom !== fallbackFrom) {
+      console.warn(
+        'Resend preferred sender failed, retrying via onboarding@resend.dev:',
+        first.status,
+        first.error
+      );
+      const retrySender = await attemptSend(fallbackFrom, params.to, params.text, params.html);
+      if (retrySender.ok) {
+        return {
+          ok: true,
+          transport: 'resend',
+          status: retrySender.status,
+          usedFallback: true,
+          deliveredTo: params.to,
+        };
+      }
+      latestError = retrySender.error || latestError;
+      latestStatus = retrySender.status || latestStatus;
+    }
+
+    if (
+      latestStatus === 403 ||
+      latestStatus === 422 ||
+      /testing emails|verify a domain|only send testing/i.test(latestError || '')
+    ) {
+      const ownerMatch = latestError?.match(/your own email address \(([^)\s]+@[^)\s]+)\)/i);
+      const extractedOwnerEmail = ownerMatch?.[1]?.trim();
+      const candidates = Array.from(
+        new Set(
+          [backupEmail, extractedOwnerEmail, 'novesta111@gmail.com'].filter(
+            (addr): addr is string => Boolean(addr)
+          )
+        )
+      ).filter(
+        (candidate) =>
+          !(params.to.length === 1 && params.to[0].toLowerCase() === candidate.toLowerCase())
+      );
+
+      for (const fallbackRecipient of candidates) {
+        console.warn(
+          `Resend sandbox blocked ${params.to.join(', ')}; routing fallback to ${fallbackRecipient}`
+        );
+        const fallbackText = `[Novesta Fallback Delivery — intended for ${params.to.join(', ')}]\n\n${params.text}`;
+        const retryBackup = await attemptSend(fallbackFrom, [fallbackRecipient], fallbackText);
+        if (retryBackup.ok) {
+          return {
+            ok: true,
+            transport: 'resend',
+            status: retryBackup.status,
+            usedFallback: true,
+            deliveredTo: [fallbackRecipient],
+          };
+        }
+        latestError = retryBackup.error || latestError;
+        latestStatus = retryBackup.status || latestStatus;
+      }
+    }
+
+    return { ok: false, transport: 'resend', status: latestStatus, error: latestError };
+  } catch (err) {
+    return { ok: false, transport: 'resend', error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+async function sendTransactionalEmail(params: EmailSendParams): Promise<EmailSendResult> {
+  if (isSmtpConfigured()) {
+    const smtpResult = await sendSmtpEmail(params);
+    if (smtpResult.ok) {
+      return smtpResult;
+    }
+    console.warn('Hostinger SMTP failed, checking Resend fallback:', smtpResult.error);
+    if (process.env.RESEND_API_KEY?.trim()) {
+      const resendResult = await sendResendEmail(params);
+      if (resendResult.ok) return resendResult;
+      return {
+        ok: false,
+        transport: 'smtp',
+        error: `SMTP: ${smtpResult.error} | Resend: ${resendResult.error}`,
+      };
+    }
+    return smtpResult;
+  }
+
+  if (process.env.RESEND_API_KEY?.trim()) {
+    return sendResendEmail(params);
+  }
+
+  return { ok: false, error: 'No email transport configured (SMTP or RESEND_API_KEY)' };
+}
+
+function buildPaymentHtml(params: {
+  eyebrow: string;
+  headline: string;
+  intro: string;
+  servicesHeading: string;
+  services: string[];
+  metaRows: Array<[string, string]>;
+  footerNote: string;
+}): string {
+  const rowsHtml = params.metaRows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:8px 0;border-bottom:1px solid #e6e7ea;color:#5a606d;font-size:13px;">${escapeHtml(label)}</td><td style="padding:8px 0;border-bottom:1px solid #e6e7ea;color:#111317;font-size:13px;font-weight:600;text-align:right;">${escapeHtml(value)}</td></tr>`
+    )
+    .join('');
+
+  const servicesHtml = params.services
+    .map(
+      (svc) =>
+        `<li style="margin:6px 0;color:#111317;font-size:14px;line-height:1.5;">&#10003;&nbsp; ${escapeHtml(svc)}</li>`
+    )
+    .join('');
+
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:24px;background:#f5f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#111317;">
+    <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e2e4e9;border-radius:14px;overflow:hidden;">
+      <div style="background:#111317;color:#ffffff;padding:24px 28px;">
+        <p style="margin:0 0 6px;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#a0a5b1;">${escapeHtml(params.eyebrow)}</p>
+        <h1 style="margin:0;font-size:22px;font-weight:600;">${escapeHtml(params.headline)}</h1>
+      </div>
+      <div style="padding:24px 28px;">
+        <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#323640;">${escapeHtml(params.intro)}</p>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:22px;">${rowsHtml}</table>
+        <div style="background:#f8f9fb;border:1px solid #e2e4e9;border-radius:10px;padding:16px 20px;margin-bottom:20px;">
+          <p style="margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#5a606d;">${escapeHtml(params.servicesHeading)}</p>
+          <ul style="margin:0;padding:0;list-style:none;">${servicesHtml}</ul>
+        </div>
+        <p style="margin:0;font-size:13px;line-height:1.6;color:#5a606d;">${escapeHtml(params.footerNote)}</p>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
+async function sendPaymentConfirmationEmails(
+  record: PaymentRecord,
+  store: SubmissionsStore
+): Promise<{ alreadySent?: boolean; customerEmailSent: boolean; adminEmailSent: boolean }> {
+  if (record.confirmationEmailsSentAt) {
+    return {
+      alreadySent: true,
+      customerEmailSent: Boolean(record.customerEmailSent),
+      adminEmailSent: Boolean(record.adminEmailSent),
+    };
+  }
+
+  const planInfo = AUTHORITATIVE_PLANS[record.planId];
+  const billing = record.billing || planInfo?.billing || 'standard plan';
+  const services =
+    record.services && record.services.length > 0
+      ? record.services
+      : planInfo?.features || [
+          'Dedicated Novesta digital growth onboarding & setup',
+          'Direct WhatsApp & priority support',
+        ];
+  record.billing = billing;
+  record.services = services;
+
+  const businessEmail = process.env.CONTACT_TO_EMAIL?.trim() || 'hello@novesta.online';
+  const amountText = `₹${record.amountInr.toLocaleString('en-IN')}`;
+  const serviceBulletLines = services.map((s) => `  • ${s}`).join('\n');
+
+  let customerEmailSent = false;
+  if (record.customerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(record.customerEmail)) {
+    const customerText = [
+      `Hi ${record.customerName},`,
+      ``,
+      `Thank you for your payment! Your order with Novesta is confirmed.`,
+      ``,
+      `PAYMENT SUMMARY`,
+      `  Receipt ID: ${record.id}`,
+      `  Plan: ${record.planName} (${billing})`,
+      `  Amount Paid: ${amountText} INR`,
+      `  Order ID: ${record.orderId}`,
+      ...(record.paymentId ? [`  Payment ID: ${record.paymentId}`] : []),
+      `  Business: ${record.businessName}`,
+      ``,
+      `SERVICES YOU WILL RECEIVE`,
+      serviceBulletLines,
+      ``,
+      `NEXT STEPS`,
+      `Our onboarding team will contact you on WhatsApp (${record.customerPhone}) and email within 1 business day to collect your brand details and begin setup.`,
+      ``,
+      `Questions anytime? Reply directly to this email (${businessEmail}) or message +91 8010927311.`,
+      ``,
+      `— Team Novesta (novesta.online)`,
+    ].join('\n');
+
+    const customerHtml = buildPaymentHtml({
+      eyebrow: 'NOVESTA PAYMENT RECEIPT',
+      headline: `Payment Confirmed — ${amountText}`,
+      intro: `Hi ${record.customerName}, thank you for choosing Novesta. Your payment has been verified and onboarding for ${record.businessName} starts right away.`,
+      servicesHeading: 'Services You Will Receive',
+      services,
+      metaRows: [
+        ['Receipt ID', record.id],
+        ['Plan Purchased', `${record.planName} (${billing})`],
+        ['Amount Paid', `${amountText} INR`],
+        ['Razorpay Order ID', record.orderId],
+        ...(record.paymentId ? ([['Razorpay Payment ID', record.paymentId]] as [string, string][]) : []),
+        ['Registered Phone', record.customerPhone || 'Not provided'],
+      ],
+      footerNote: `Need immediate assistance? Reply to ${businessEmail} or WhatsApp +91 8010927311 with Receipt ${record.id}.`,
+    });
+
+    const customerRes = await sendTransactionalEmail({
+      to: [record.customerEmail],
+      replyTo: businessEmail,
+      fromLabel: 'Novesta Billing',
+      subject: `[Novesta] Payment Confirmed — ${record.planName} (Receipt ${record.id})`,
+      text: customerText,
+      html: customerHtml,
+    });
+    customerEmailSent = customerRes.ok;
+    if (!customerRes.ok) {
+      console.warn('Could not email customer payment confirmation:', customerRes.error);
+    }
+  }
+
+  const adminText = [
+    `New Razorpay Payment Confirmed on Novesta`,
+    ``,
+    `CUSTOMER DETAILS`,
+    `  Name: ${record.customerName}`,
+    `  Business: ${record.businessName}`,
+    `  Email: ${record.customerEmail || 'Not provided'}`,
+    `  Phone / WhatsApp: ${record.customerPhone || 'Not provided'}`,
+    ``,
+    `PAYMENT DETAILS`,
+    `  Receipt ID: ${record.id}`,
+    `  Plan: ${record.planName} (${billing})`,
+    `  Amount Paid: ${amountText} INR`,
+    `  Order ID: ${record.orderId}`,
+    ...(record.paymentId ? [`  Payment ID: ${record.paymentId}`] : []),
+    `  Status: ${record.status}`,
+    `  Customer Email Sent: ${customerEmailSent ? 'Yes' : 'No (check SMTP/Resend logs)'}`,
+    ``,
+    `SERVICES INCLUDED TO DELIVER`,
+    serviceBulletLines,
+  ].join('\n');
+
+  const adminHtml = buildPaymentHtml({
+    eyebrow: 'NOVESTA REVENUE ALERT',
+    headline: `Received ${amountText} — ${record.customerName}`,
+    intro: `${record.customerName} (${record.businessName}) completed online payment for ${record.planName}. Deliver the onboarding & service checklist below:`,
+    servicesHeading: 'Services To Deliver For This Plan',
+    services,
+    metaRows: [
+      ['Customer', `${record.customerName} (${record.businessName})`],
+      ['Customer Email', record.customerEmail || 'Not provided'],
+      ['Phone / WhatsApp', record.customerPhone || 'Not provided'],
+      ['Receipt ID', record.id],
+      ['Plan & Billing', `${record.planName} (${billing})`],
+      ['Amount Paid', `${amountText} INR`],
+      ['Order ID', record.orderId],
+      ...(record.paymentId ? ([['Payment ID', record.paymentId]] as [string, string][]) : []),
+      ['Customer Confirmation Sent', customerEmailSent ? 'Yes' : 'Not sent / fallback'],
+    ],
+    footerNote: `Reply directly to this email to message ${record.customerEmail || 'the customer'}.`,
+  });
+
+  const adminRes = await sendTransactionalEmail({
+    to: [businessEmail],
+    replyTo: record.customerEmail || undefined,
+    fromLabel: 'Novesta Payments',
+    subject: `[Novesta Payment Received] ${amountText} — ${record.planName} (${record.customerName})`,
+    text: adminText,
+    html: adminHtml,
+  });
+  const adminEmailSent = adminRes.ok;
+  if (!adminRes.ok) {
+    console.warn('Could not email Novesta payment notification:', adminRes.error);
+  }
+
+  record.customerEmailSent = customerEmailSent;
+  record.adminEmailSent = adminEmailSent;
+  if (customerEmailSent || adminEmailSent) {
+    record.confirmationEmailsSentAt = new Date().toISOString();
+  }
+  saveStore(store);
+
+  return { customerEmailSent, adminEmailSent };
 }
 
 interface ContactPayload {
@@ -435,6 +889,7 @@ async function startServer() {
       return acc;
     }, {});
 
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
       roles: store.roles.map((role) => ({
         ...role,
@@ -447,10 +902,11 @@ async function startServer() {
   // Founder Auth & Admin Endpoints (strictly founder-only)
   app.get('/api/admin/session', (req, res) => {
     const founderEmail = getAuthenticatedFounder(req);
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
       authenticated: Boolean(founderEmail),
       email: founderEmail || undefined,
-      emailOtpEnabled: Boolean(process.env.RESEND_API_KEY),
+      emailOtpEnabled: getEmailTransportMode() !== 'none',
       passkeyEnabled: Boolean(process.env.FOUNDER_ADMIN_KEY?.trim()),
     });
   });
@@ -480,10 +936,9 @@ async function startServer() {
       return;
     }
 
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (!resendApiKey) {
+    if (getEmailTransportMode() === 'none') {
       res.status(503).json({
-        error: 'Email verification is unavailable without RESEND_API_KEY configured.',
+        error: 'Email verification is unavailable without Hostinger SMTP or RESEND_API_KEY configured.',
       });
       return;
     }
@@ -496,46 +951,30 @@ async function startServer() {
       attempts: 0,
     });
 
-    const fromAddress =
-      process.env.RESEND_FROM_EMAIL || 'Novesta Security <onboarding@resend.dev>';
+    const result = await sendTransactionalEmail({
+      to: [rawEmail],
+      fromLabel: 'Novesta Security',
+      subject: `[Novesta Founder Login] Your verification code: ${code}`,
+      text: [
+        `Your Novesta Founder Admin verification code is: ${code}`,
+        ``,
+        `This code expires in 10 minutes. If you did not request this login, you can safely ignore this email.`,
+      ].join('\n'),
+    });
 
-    try {
-      const emailResponse = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: fromAddress,
-          to: [rawEmail],
-          subject: `[Novesta Founder Login] Your verification code: ${code}`,
-          text: [
-            `Your Novesta Founder Admin verification code is: ${code}`,
-            ``,
-            `This code expires in 10 minutes. If you did not request this login, you can safely ignore this email.`,
-          ].join('\n'),
-        }),
+    if (!result.ok) {
+      console.error('OTP delivery error:', result.error);
+      res.status(502).json({
+        error:
+          'Could not deliver verification email to that address right now. Sign in using your Founder Passkey instead.',
       });
-
-      if (!emailResponse.ok) {
-        const errText = await emailResponse.text();
-        console.error('Resend OTP delivery error:', emailResponse.status, errText);
-        res.status(502).json({
-          error:
-            'Could not deliver verification email to that address. Try your primary Resend email or Founder Passkey.',
-        });
-        return;
-      }
-
-      res.json({
-        ok: true,
-        message: `Verification code sent to ${rawEmail}. Check your inbox and enter the 6-digit code.`,
-      });
-    } catch (err) {
-      console.error('Failed sending OTP email:', err);
-      res.status(500).json({ error: 'Network error sending verification code.' });
+      return;
     }
+
+    res.json({
+      ok: true,
+      message: `Verification code sent to ${rawEmail}. Check your inbox and enter the 6-digit code.`,
+    });
   });
 
   app.post('/api/admin/verify-otp', (req, res) => {
@@ -589,7 +1028,7 @@ async function startServer() {
       return;
     }
 
-    const primaryEmail = getAllowedFounderEmails()[0] || 'founder@novesta.in';
+    const primaryEmail = getAllowedFounderEmails()[0] || 'hello@novesta.online';
     setFounderSessionCookie(req, res, primaryEmail);
     res.json({ ok: true, email: primaryEmail });
   });
@@ -602,11 +1041,17 @@ async function startServer() {
     }
 
     const baseUrl = resolveBaseUrl(req);
+    const resendFromEnv = process.env.RESEND_FROM_EMAIL?.trim() || '';
+    const smtp = getSmtpConfig();
+    const transportMode = getEmailTransportMode();
+    const smtpActive = isSmtpConfigured();
+
     res.json({
       roles: store.roles,
       applications: store.applications,
       contacts: store.contacts,
       payments: store.payments,
+      feedbacks: store.feedbacks,
       razorpaySetup: {
         keyConfigured: Boolean(
           process.env.RAZORPAY_KEY_ID?.trim() && process.env.RAZORPAY_KEY_SECRET?.trim()
@@ -615,6 +1060,67 @@ async function startServer() {
         webhookUrl: `${baseUrl}/api/payments/razorpay/webhook`,
         recommendedEvents: ['payment.captured', 'order.paid', 'payment.failed'],
       },
+      emailSetup: {
+        transport: transportMode,
+        smtpConfigured: smtpActive,
+        smtpHost: smtp.host || 'smtp.hostinger.com',
+        smtpPort: smtp.port,
+        smtpUser: smtp.user || 'hello@novesta.online',
+        resendKeyConfigured: Boolean(process.env.RESEND_API_KEY?.trim()),
+        fromAddress: smtpActive
+          ? smtp.from || `Novesta <${smtp.user}>`
+          : resendFromEnv || 'Novesta <onboarding@resend.dev>',
+        toAddress: process.env.CONTACT_TO_EMAIL?.trim() || 'hello@novesta.online',
+        backupEmail: process.env.FOUNDER_BACKUP_EMAIL?.trim() || 'novesta111@gmail.com',
+        customDomainConfigured: Boolean(
+          smtpActive || (resendFromEnv && !resendFromEnv.includes('onboarding@resend.dev'))
+        ),
+      },
+    });
+  });
+
+  app.post('/api/admin/test-email', async (req, res) => {
+    const founderEmail = getAuthenticatedFounder(req);
+    if (!founderEmail) {
+      res.status(401).json({ error: 'Founder authentication required.' });
+      return;
+    }
+
+    const toAddress = process.env.CONTACT_TO_EMAIL?.trim() || 'hello@novesta.online';
+    const result = await sendTransactionalEmail({
+      to: [toAddress],
+      replyTo: founderEmail,
+      subject: 'Novesta Email & Domain Verification Test',
+      text: [
+        'Novesta transactional email diagnostic test.',
+        `Active Transport: ${getEmailTransportMode().toUpperCase()}`,
+        `Triggered by: ${founderEmail}`,
+        `Target Inbox: ${toAddress}`,
+        `Timestamp: ${new Date().toISOString()}`,
+      ].join('\n'),
+    });
+
+    if (!result.ok) {
+      res.status(502).json({
+        ok: false,
+        error: result.error || 'Email dispatch failed.',
+        status: result.status,
+      });
+      return;
+    }
+
+    const delivered = result.deliveredTo?.join(', ') || toAddress;
+    res.json({
+      ok: true,
+      transport: result.transport,
+      deliveredTo: result.deliveredTo || [toAddress],
+      usedFallback: Boolean(result.usedFallback),
+      message:
+        result.transport === 'smtp'
+          ? `Test email delivered directly via Hostinger SMTP (${getSmtpConfig().host}) to ${delivered}.`
+          : result.usedFallback
+            ? `Delivered via Resend fallback to ${delivered}. Configure Hostinger SMTP or verify novesta.online DNS in Resend for direct customer receipts.`
+            : `Test email delivered directly to ${delivered}.`,
     });
   });
 
@@ -784,12 +1290,38 @@ async function startServer() {
     res.json({ ok: true, contacts: store.contacts });
   });
 
-  // Feedback store & endpoints (live entries persisted + seeded samples)
-  app.get('/api/feedback', (_req, res) => {
-    res.json({ items: [...store.feedbacks, ...SAMPLE_FEEDBACKS] });
+  app.delete('/api/admin/feedback/:id', (req, res) => {
+    const founderEmail = getAuthenticatedFounder(req);
+    if (!founderEmail) {
+      res.status(401).json({ error: 'Founder authentication required.' });
+      return;
+    }
+    const feedbackId = req.params.id;
+    const before = store.feedbacks.length;
+    store.feedbacks = store.feedbacks.filter((f) => f.id !== feedbackId);
+    if (store.feedbacks.length === before) {
+      res.status(404).json({ error: 'Feedback entry not found.' });
+      return;
+    }
+    saveStore(store);
+    res.json({ ok: true, feedbacks: store.feedbacks });
   });
 
-  app.post('/api/feedback', (req, res) => {
+  // Public feedback endpoints (persisted in submissions store, displayed live on site, + emails founder)
+  app.get('/api/feedback', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const items = store.feedbacks;
+    const totalCount = items.length;
+    const averageRating =
+      totalCount > 0
+        ? Number(
+            (items.reduce((sum, item) => sum + item.rating, 0) / totalCount).toFixed(1)
+          )
+        : 0;
+    res.json({ items, totalCount, averageRating });
+  });
+
+  app.post('/api/feedback', async (req, res) => {
     const body = req.body || {};
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const business = typeof body.business === 'string' ? body.business.trim() : '';
@@ -809,25 +1341,43 @@ async function startServer() {
       return;
     }
 
+    const businessLabel = business.slice(0, 80) || 'Verified Client';
     const entry: FeedbackEntry = {
-      id: `fb-${Date.now()}`,
+      id: `NOV-FB-${Date.now().toString(36).toUpperCase()}`,
       name,
-      business: business.slice(0, 80) || 'Verified Visitor',
+      business: businessLabel,
       rating: ratingNum,
       comment,
       createdAt: new Date().toISOString(),
     };
 
     store.feedbacks.unshift(entry);
-    if (store.feedbacks.length > 50) {
-      store.feedbacks.length = 50;
-    }
+    if (store.feedbacks.length > 200) store.feedbacks.length = 200;
     saveStore(store);
 
-    res.status(201).json({
+    const recipient = process.env.CONTACT_TO_EMAIL || 'hello@novesta.online';
+    const emailResult = await sendTransactionalEmail({
+      to: [recipient],
+      fromLabel: 'Novesta Feedback',
+      subject: `[Novesta Public Feedback] ${ratingNum}/5 from ${name}`,
+      text: [
+        `New public feedback published on Novesta (${entry.id})`,
+        ``,
+        `Name: ${name}`,
+        `Business / Role: ${businessLabel}`,
+        `Rating: ${ratingNum} / 5`,
+        ``,
+        `Feedback:`,
+        comment,
+      ].join('\n'),
+    });
+
+    res.status(200).json({
       ok: true,
+      delivered: emailResult.ok,
       item: entry,
-      message: 'Thank you for sharing your feedback with Novesta.',
+      items: store.feedbacks,
+      message: 'Thank you! Your feedback is now published on the website.',
     });
   });
 
@@ -837,6 +1387,7 @@ async function startServer() {
   app.get('/api/payments/config', (_req, res) => {
     const keyId = process.env.RAZORPAY_KEY_ID?.trim() || '';
     const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim() || '';
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
       enabled: Boolean(keyId && keySecret),
       currency: 'INR',
@@ -881,7 +1432,7 @@ async function startServer() {
       return;
     }
 
-    const receipt = `WBL-${Date.now().toString(36).toUpperCase()}`;
+    const receipt = `NOV-${Date.now().toString(36).toUpperCase()}`;
     const amountPaise = plan.amountInr * 100;
     const authHeader = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
 
@@ -928,6 +1479,8 @@ async function startServer() {
         orderId: rpData.id,
         planId: plan.id,
         planName: plan.name,
+        billing: plan.billing,
+        services: plan.features,
         amountInr: plan.amountInr,
         amountPaise,
         currency: 'INR',
@@ -996,45 +1549,25 @@ async function startServer() {
 
     const record = store.payments.find((p) => p.orderId === orderId);
     const now = new Date().toISOString();
+    let customerEmailSent = false;
+    let adminEmailSent = false;
+
     if (record) {
       record.paymentId = paymentId;
       record.status = 'Paid (Verified)';
       record.updatedAt = now;
       saveStore(store);
+
+      const emailStatus = await sendPaymentConfirmationEmails(record, store);
+      customerEmailSent = emailStatus.customerEmailSent;
+      adminEmailSent = emailStatus.adminEmailSent;
     }
 
-    const recipient = process.env.CONTACT_TO_EMAIL || 'novesta111@gmail.com';
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (resendApiKey && record) {
-      try {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: process.env.RESEND_FROM_EMAIL || 'Novesta Payments <onboarding@resend.dev>',
-            to: [recipient],
-            reply_to: record.customerEmail,
-            subject: `[Novesta Payment Verified] ₹${record.amountInr} — ${record.planName}`,
-            text: [
-              `Razorpay Payment Confirmed`,
-              `Receipt: ${record.id}`,
-              `Plan: ${record.planName} (₹${record.amountInr})`,
-              `Order ID: ${orderId}`,
-              `Payment ID: ${paymentId}`,
-              ``,
-              `Customer: ${record.customerName} (${record.businessName})`,
-              `Phone / WhatsApp: ${record.customerPhone}`,
-              `Email: ${record.customerEmail}`,
-            ].join('\n'),
-          }),
-        });
-      } catch (err) {
-        console.warn('Could not email payment receipt:', err);
-      }
-    }
+    const planInfo = record ? AUTHORITATIVE_PLANS[record.planId] : undefined;
+    const services =
+      record?.services && record.services.length > 0
+        ? record.services
+        : planInfo?.features || [];
 
     res.json({
       ok: true,
@@ -1042,7 +1575,12 @@ async function startServer() {
       orderId,
       paymentId,
       planName: record?.planName || 'Novesta Plan',
+      billing: record?.billing || planInfo?.billing || '',
       amountInr: record?.amountInr || 0,
+      customerEmail: record?.customerEmail || '',
+      customerEmailSent,
+      adminEmailSent,
+      services,
       status: 'Paid (Verified)',
       paidAt: now,
     });
@@ -1054,11 +1592,12 @@ async function startServer() {
       status: 'ready',
       method: 'POST',
       webhookSecretConfigured: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET?.trim()),
+      emailTransport: getEmailTransportMode(),
       events: ['payment.captured', 'order.paid', 'payment.failed'],
     });
   });
 
-  app.post('/api/payments/razorpay/webhook', (req, res) => {
+  app.post('/api/payments/razorpay/webhook', async (req, res) => {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim();
     const signature = (req.headers['x-razorpay-signature'] as string | undefined)?.trim() || '';
     const rawBody = (req as express.Request & { rawBody?: Buffer }).rawBody;
@@ -1089,6 +1628,8 @@ async function startServer() {
       '';
     const paymentId = typeof paymentEntity?.id === 'string' ? paymentEntity.id : undefined;
 
+    let targetRecord: PaymentRecord | undefined;
+
     if (orderId) {
       const now = new Date().toISOString();
       const existing = store.payments.find((p) => p.orderId === orderId);
@@ -1104,15 +1645,25 @@ async function startServer() {
         }
         existing.updatedAt = now;
         saveStore(store);
+        targetRecord = existing;
       } else if (eventName === 'payment.captured' || eventName === 'order.paid') {
         const amountPaise = Number(paymentEntity?.amount || orderEntity?.amount || 0);
         const notes = paymentEntity?.notes || orderEntity?.notes || {};
-        store.payments.unshift({
-          id: `WBL-WH-${Date.now().toString(36).toUpperCase()}`,
+        const notePlanId = typeof notes.planId === 'string' ? notes.planId : 'external';
+        const matchedPlan = AUTHORITATIVE_PLANS[notePlanId];
+        targetRecord = {
+          id: `NOV-WH-${Date.now().toString(36).toUpperCase()}`,
           orderId,
           paymentId,
-          planId: typeof notes.planId === 'string' ? notes.planId : 'external',
-          planName: typeof notes.planName === 'string' ? notes.planName : 'Razorpay Payment',
+          planId: notePlanId,
+          planName:
+            typeof notes.planName === 'string'
+              ? notes.planName
+              : matchedPlan?.name || 'Razorpay Payment',
+          billing: matchedPlan?.billing || 'standard plan',
+          services: matchedPlan?.features || [
+            'Custom Novesta digital growth onboarding & setup',
+          ],
           amountInr: Math.round(amountPaise / 100),
           amountPaise,
           currency: 'INR',
@@ -1135,9 +1686,18 @@ async function startServer() {
           webhookEvent: eventName,
           createdAt: now,
           updatedAt: now,
-        });
+        };
+        store.payments.unshift(targetRecord);
         saveStore(store);
       }
+    }
+
+    if (
+      targetRecord &&
+      (eventName === 'payment.captured' || eventName === 'order.paid') &&
+      !targetRecord.confirmationEmailsSentAt
+    ) {
+      await sendPaymentConfirmationEmails(targetRecord, store);
     }
 
     console.info('[Novesta Razorpay Webhook]', {
@@ -1150,13 +1710,13 @@ async function startServer() {
     res.status(200).json({ ok: true, received: true, event: eventName });
   });
 
-  // Serve /favicon.ico cleanly so browsers and search crawlers never get 404
+  // Serve /favicon.ico cleanly from optimized 3.5 KB PNG so browsers never download 467 KB or hit 404
   app.get('/favicon.ico', (_req, res) => {
-    const publicLogo = path.resolve(__dirname, 'public/assets/aistudio/Novesta_72b3be73.png');
-    const distLogo = path.resolve(__dirname, 'dist/assets/aistudio/Novesta_72b3be73.png');
-    const target = fs.existsSync(distLogo) ? distLogo : publicLogo;
+    const publicIcon = path.resolve(__dirname, 'public/assets/novesta-mark-96.png');
+    const distIcon = path.resolve(__dirname, 'dist/assets/novesta-mark-96.png');
+    const target = fs.existsSync(distIcon) ? distIcon : publicIcon;
     if (fs.existsSync(target)) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Cache-Control', 'public, max-age=604800');
       res.sendFile(target);
       return;
     }
@@ -1234,49 +1794,29 @@ ${routes
     if (store.contacts.length > 200) store.contacts.length = 200;
     saveStore(store);
 
-    const recipient = process.env.CONTACT_TO_EMAIL || 'novesta111@gmail.com';
-    const resendApiKey = process.env.RESEND_API_KEY;
-    const fromAddress =
-      process.env.RESEND_FROM_EMAIL || 'Novesta Website <onboarding@resend.dev>';
-
-    let delivered = false;
-    if (resendApiKey) {
-      try {
-        const emailResponse = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: fromAddress,
-            to: [recipient],
-            reply_to: email,
-            subject: `[Novesta Lead ${record.id}] ${businessType}${
-              plan ? ` (${plan})` : ''
-            } — ${name}`,
-            text: [
-              `New consultation inquiry from Novesta website`,
-              `Reference ID: ${record.id}`,
-              ``,
-              `Name: ${name}`,
-              `Phone / WhatsApp: ${phone}`,
-              `Email: ${email}`,
-              `Business Type: ${businessType}`,
-              `Selected Plan: ${plan || 'Not specified'}`,
-              ``,
-              `Message:`,
-              message,
-            ].join('\n'),
-          }),
-        });
-        delivered = emailResponse.ok;
-        if (!emailResponse.ok) {
-          console.error('Resend API error:', emailResponse.status, await emailResponse.text());
-        }
-      } catch (error) {
-        console.error('Failed to send contact email:', error);
-      }
+    const recipient = process.env.CONTACT_TO_EMAIL || 'hello@novesta.online';
+    const emailResult = await sendTransactionalEmail({
+      to: [recipient],
+      replyTo: email,
+      fromLabel: 'Novesta Website',
+      subject: `[Novesta Lead ${record.id}] ${businessType}${plan ? ` (${plan})` : ''} — ${name}`,
+      text: [
+        `New consultation inquiry from Novesta website`,
+        `Reference ID: ${record.id}`,
+        ``,
+        `Name: ${name}`,
+        `Phone / WhatsApp: ${phone}`,
+        `Email: ${email}`,
+        `Business Type: ${businessType}`,
+        `Selected Plan: ${plan || 'Not specified'}`,
+        ``,
+        `Message:`,
+        message,
+      ].join('\n'),
+    });
+    const delivered = emailResult.ok;
+    if (!delivered && emailResult.error && !emailResult.error.includes('No email transport')) {
+      console.error('Contact email error:', emailResult.error);
     }
 
     console.info('[Novesta Contact Accepted]', {
@@ -1362,51 +1902,33 @@ ${routes
     if (store.applications.length > 200) store.applications.length = 200;
     saveStore(store);
 
-    const recipient = process.env.CONTACT_TO_EMAIL || 'novesta111@gmail.com';
-    const resendApiKey = process.env.RESEND_API_KEY;
-    const fromAddress =
-      process.env.RESEND_FROM_EMAIL || 'Novesta Careers <onboarding@resend.dev>';
-
-    let delivered = false;
-    if (resendApiKey) {
-      try {
-        const emailResponse = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: fromAddress,
-            to: [recipient],
-            reply_to: email,
-            subject: `[Novesta Career Application ${record.id}] ${role} — ${fullName}`,
-            text: [
-              `New Careers Application`,
-              `Reference ID: ${record.id}`,
-              ``,
-              `Role: ${role}`,
-              `Full Name: ${fullName}`,
-              `Email: ${email}`,
-              ``,
-              `01. Work sample / project:`,
-              answer1,
-              ``,
-              `02. Hard problem solved from scratch:`,
-              answer2,
-              ``,
-              `03. Local conversion fixes:`,
-              answer3,
-            ].join('\n'),
-          }),
-        });
-        delivered = emailResponse.ok;
-        if (!emailResponse.ok) {
-          console.error('Resend career API error:', emailResponse.status, await emailResponse.text());
-        }
-      } catch (error) {
-        console.error('Failed to send career application:', error);
-      }
+    const recipient = process.env.CONTACT_TO_EMAIL || 'hello@novesta.online';
+    const emailResult = await sendTransactionalEmail({
+      to: [recipient],
+      replyTo: email,
+      fromLabel: 'Novesta Careers',
+      subject: `[Novesta Career Application ${record.id}] ${role} — ${fullName}`,
+      text: [
+        `New Careers Application`,
+        `Reference ID: ${record.id}`,
+        ``,
+        `Role: ${role}`,
+        `Full Name: ${fullName}`,
+        `Email: ${email}`,
+        ``,
+        `01. Work sample / project:`,
+        answer1,
+        ``,
+        `02. Hard problem solved from scratch:`,
+        answer2,
+        ``,
+        `03. Local conversion fixes:`,
+        answer3,
+      ].join('\n'),
+    });
+    const delivered = emailResult.ok;
+    if (!delivered && emailResult.error && !emailResult.error.includes('No email transport')) {
+      console.error('Career email error:', emailResult.error);
     }
 
     const roleCount = store.applications.filter((a) => a.role === role).length;
@@ -1435,6 +1957,15 @@ ${routes
   });
 
   if (!isProduction) {
+    const publicAssetsPath = path.resolve(__dirname, 'public/assets');
+    if (fs.existsSync(publicAssetsPath)) {
+      app.use(
+        '/assets',
+        express.static(publicAssetsPath, {
+          maxAge: '1d',
+        })
+      );
+    }
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1442,6 +1973,95 @@ ${routes
     });
     app.use(vite.middlewares);
   } else {
+    // Enable zero-dependency Brotli / Gzip compression for static JS, CSS, JSON, SVG, and HTML in production
+    app.use((req, res, next) => {
+      const acceptEncoding = String(req.headers['accept-encoding'] || '');
+      const encoding = acceptEncoding.includes('br')
+        ? 'br'
+        : acceptEncoding.includes('gzip')
+          ? 'gzip'
+          : null;
+      if (!encoding) {
+        next();
+        return;
+      }
+
+      const originalEnd = res.end.bind(res);
+      const originalWrite = res.write.bind(res);
+      const chunks: Buffer[] = [];
+      let decided = false;
+      let shouldCompress = false;
+
+      const decideCompression = () => {
+        if (decided) return shouldCompress;
+        decided = true;
+        if (res.getHeader('Content-Encoding')) {
+          shouldCompress = false;
+          return false;
+        }
+        const contentType = String(res.getHeader('Content-Type') || '');
+        const isCompressibleType =
+          /^(text\/|application\/(javascript|json|xml|ld\+json)|image\/svg\+xml)/i.test(
+            contentType
+          );
+        shouldCompress = isCompressibleType && req.method !== 'HEAD';
+        return shouldCompress;
+      };
+
+      res.write = ((chunk: unknown, encodingArg?: BufferEncoding | ((error: Error | null | undefined) => void), cb?: (error: Error | null | undefined) => void) => {
+        if (!decideCompression()) {
+          return originalWrite(chunk as never, encodingArg as never, cb as never);
+        }
+        if (chunk) {
+          chunks.push(
+            Buffer.isBuffer(chunk)
+              ? chunk
+              : Buffer.from(
+                  String(chunk),
+                  typeof encodingArg === 'string' ? encodingArg : 'utf8'
+                )
+          );
+        }
+        if (typeof encodingArg === 'function') encodingArg(null);
+        else if (typeof cb === 'function') cb(null);
+        return true;
+      }) as typeof res.write;
+
+      res.end = ((chunk?: unknown, encodingArg?: BufferEncoding | (() => void), cb?: () => void) => {
+        if (!decideCompression()) {
+          return originalEnd(chunk as never, encodingArg as never, cb as never);
+        }
+        if (chunk && typeof chunk !== 'function') {
+          chunks.push(
+            Buffer.isBuffer(chunk)
+              ? chunk
+              : Buffer.from(
+                  String(chunk),
+                  typeof encodingArg === 'string' ? encodingArg : 'utf8'
+                )
+          );
+        }
+        const combined = Buffer.concat(chunks);
+        if (combined.length < 1024) {
+          return originalEnd(combined, cb as never);
+        }
+
+        res.removeHeader('Content-Length');
+        res.setHeader('Vary', 'Accept-Encoding');
+        res.setHeader('Content-Encoding', encoding);
+
+        const compressed =
+          encoding === 'br'
+            ? zlib.brotliCompressSync(combined, {
+                params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 },
+              })
+            : zlib.gzipSync(combined, { level: 6 });
+        return originalEnd(compressed, cb as never);
+      }) as typeof res.end;
+
+      next();
+    });
+
     const distPath = path.resolve(__dirname, 'dist');
     const assetsPath = path.join(distPath, 'assets');
     if (fs.existsSync(assetsPath)) {
@@ -1455,7 +2075,7 @@ ${routes
     }
 
     // Serve remaining public/dist assets without shadowing / -> SEO HTML injector
-    app.use(express.static(distPath, { index: false }));
+    app.use(express.static(distPath, { index: false, maxAge: '7d' }));
 
     const indexPath = path.join(distPath, 'index.html');
     const cachedTemplate = fs.existsSync(indexPath)
@@ -1552,7 +2172,7 @@ ${routes
           /<meta\s+name="twitter:image"\s+content="[^"]*"\s*\/?>/i,
           `<meta name="twitter:image" content="${ogImageUrl}" />`
         )
-        .replace(/https:\/\/novesta\.in/g, baseUrl)
+        .replace(/https:\/\/novesta\.(?:online|in)/g, baseUrl)
         .replace(/"\/assets\/aistudio\/Novesta_72b3be73\.png"/g, `"${ogImageUrl}"`);
 
       if (gscToken && !gscToken.startsWith('REPLACE_')) {

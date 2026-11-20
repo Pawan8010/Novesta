@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { ArrowRight, Check, CreditCard, MessageCircle } from 'lucide-react';
 import {
   buildPlanWhatsappUrl,
@@ -7,7 +7,10 @@ import {
   type PricingPlan,
 } from '../config/site';
 import { DrawingHairline } from './DrawingHairline';
-import { PaymentModal } from './PaymentModal';
+
+const PaymentModal = lazy(() =>
+  import('./PaymentModal').then((m) => ({ default: m.PaymentModal }))
+);
 
 interface PricingSectionProps {
   onSelectPlan: (planName: string) => void;
@@ -200,7 +203,7 @@ export function PricingSection({ onSelectPlan }: PricingSectionProps) {
     <section
       id="pricing"
       aria-labelledby="pricing-heading"
-      className="bg-[var(--color-bg)] py-16 text-[var(--color-ink)] sm:py-24"
+      className="scroll-mt-20 bg-[var(--color-bg)] py-16 text-[var(--color-ink)] sm:py-24"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
@@ -322,7 +325,11 @@ export function PricingSection({ onSelectPlan }: PricingSectionProps) {
 
       <DrawingHairline className="mt-16 sm:mt-24" />
 
-      <PaymentModal plan={checkoutPlan} onClose={() => setCheckoutPlan(null)} />
+      {checkoutPlan && (
+        <Suspense fallback={null}>
+          <PaymentModal plan={checkoutPlan} onClose={() => setCheckoutPlan(null)} />
+        </Suspense>
+      )}
     </section>
   );
 }

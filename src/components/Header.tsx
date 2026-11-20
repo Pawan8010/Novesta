@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { siteConfig } from '../config/site';
+import { NovestaLogo } from './NovestaLogo';
 
 interface HeaderProps {
   currentPath: string;
+  currentHash: string;
   onNavigate: (path: string, hash?: string) => void;
 }
 
-export function Header({ currentPath, onNavigate }: HeaderProps) {
+export function Header({ currentPath, currentHash, onNavigate }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -51,20 +53,14 @@ export function Header({ currentPath, onNavigate }: HeaderProps) {
     <>
       <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-bg)]/95 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2.5 sm:gap-6 sm:px-6 lg:px-8">
-          {/* Left: White-on-black Weblance logo inside small black rounded badge */}
+          {/* Left: Sleek pill Novesta monogram + wordmark lockup */}
           <a
             href="/"
             onClick={(e) => handleLinkClick(e, '/')}
-            className="inline-flex h-11 w-[138px] shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-xs)] bg-[var(--color-logo-badge)] px-2 transition-opacity hover:opacity-90 sm:w-[152px]"
-            aria-label="Weblance home"
+            className="inline-flex shrink-0 items-center rounded-full transition-opacity hover:opacity-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-ink)]"
+            aria-label="Novesta home"
           >
-            <img
-              src={siteConfig.brand.logoPath}
-              alt={siteConfig.brand.logoAlt}
-              className="h-full w-full scale-[1.2] object-cover object-center"
-              width={152}
-              height={44}
-            />
+            <NovestaLogo variant="header" />
           </a>
 
           {/* Center: Clean single-line navigation links */}
@@ -72,9 +68,7 @@ export function Header({ currentPath, onNavigate }: HeaderProps) {
             {siteConfig.navLinks.map((item) => {
               const isHash = item.href.startsWith('#');
               const isActive = isHash
-                ? currentPath === '/' &&
-                  typeof window !== 'undefined' &&
-                  window.location.hash === item.href
+                ? currentPath === '/' && currentHash === item.href
                 : currentPath === item.href;
 
               return (
@@ -143,16 +137,10 @@ export function Header({ currentPath, onNavigate }: HeaderProps) {
               <a
                 href="/"
                 onClick={(e) => handleLinkClick(e, '/')}
-                className="inline-flex h-11 w-[138px] items-center justify-center overflow-hidden rounded-[var(--radius-xs)] bg-[var(--color-logo-badge)] px-2"
-                aria-label="Weblance home"
+                className="inline-flex shrink-0 items-center rounded-full"
+                aria-label="Novesta home"
               >
-                <img
-                  src={siteConfig.brand.logoPath}
-                  alt={siteConfig.brand.logoAlt}
-                  className="h-full w-full scale-[1.2] object-cover object-center"
-                  width={138}
-                  height={44}
-                />
+                <NovestaLogo variant="header" />
               </a>
 
               <button

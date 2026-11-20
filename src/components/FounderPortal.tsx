@@ -68,6 +68,8 @@ interface AdminPayment {
   status: string;
   webhookVerified?: boolean;
   webhookEvent?: string;
+  customerEmailSent?: boolean;
+  adminEmailSent?: boolean;
   createdAt: string;
 }
 
@@ -76,6 +78,28 @@ interface RazorpaySetupInfo {
   webhookSecretConfigured: boolean;
   webhookUrl: string;
   recommendedEvents: string[];
+}
+
+interface EmailSetupInfo {
+  transport?: 'smtp' | 'resend' | 'none';
+  smtpConfigured?: boolean;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  resendKeyConfigured: boolean;
+  fromAddress: string;
+  toAddress: string;
+  backupEmail: string;
+  customDomainConfigured: boolean;
+}
+
+interface AdminFeedback {
+  id: string;
+  name: string;
+  business: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
 }
 
 const ROLE_STATUS_OPTIONS = ['Accepting applications', 'Urgent hiring', 'Paused'];
@@ -88,7 +112,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
   const [passkeyEnabled, setPasskeyEnabled] = useState(false);
 
   // Login form state
-  const [authMethod, setAuthMethod] = useState<'otp' | 'passkey'>('otp');
+  const [authMethod, setAuthMethod] = useState<'otp' | 'passkey'>('passkey');
   const [loginEmail, setLoginEmail] = useState('');
   const [otpRequested, setOtpRequested] = useState(false);
   const [otpCode, setOtpCode] = useState('');
@@ -102,7 +126,14 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
   const [applications, setApplications] = useState<AdminApplication[]>([]);
   const [contacts, setContacts] = useState<AdminContact[]>([]);
   const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [feedbacks, setFeedbacks] = useState<AdminFeedback[]>([]);
   const [razorpaySetup, setRazorpaySetup] = useState<RazorpaySetupInfo | null>(null);
+  const [emailSetup, setEmailSetup] = useState<EmailSetupInfo | null>(null);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [actionBanner, setActionBanner] = useState<{
@@ -119,6 +150,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
 
   // Inline edit role state
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editCode, setEditCode] = useState('');
   const [editTitle, setEditTitle] = useState('');
   const [editTeam, setEditTeam] = useState('');
   const [editLocation, setEditLocation] = useState('');
@@ -127,7 +159,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
 
   // Submissions tab
   const [activeInboxTab, setActiveInboxTab] = useState<
-    'applications' | 'contacts' | 'payments'
+    'applications' | 'contacts' | 'payments' | 'feedback' | 'email'
   >('applications');
 
   const fetchAdminData = useCallback(async () => {
@@ -144,7 +176,9 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
         setApplications(Array.isArray(data.applications) ? data.applications : []);
         setContacts(Array.isArray(data.contacts) ? data.contacts : []);
         setPayments(Array.isArray(data.payments) ? data.payments : []);
+        setFeedbacks(Array.isArray(data.feedbacks) ? data.feedbacks : []);
         setRazorpaySetup(data.razorpaySetup || null);
+        setEmailSetup(data.emailSetup || null);
       }
     } catch {
       setActionBanner({ type: 'error', text: 'Could not refresh founder data.' });
@@ -162,8 +196,8 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
       setFounderEmail(data.email || '');
       setEmailOtpEnabled(Boolean(data.emailOtpEnabled));
       setPasskeyEnabled(Boolean(data.passkeyEnabled));
-      if (!data.emailOtpEnabled && data.passkeyEnabled) {
-        setAuthMethod('passkey');
+      if (!data.passkeyEnabled && data.emailOtpEnabled) {
+        setAuthMethod('otp');
       }
       if (data.authenticated) {
         await fetchAdminData();
@@ -305,6 +339,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
 
   const startEdit = (role: AdminRole) => {
     setEditingId(role.id);
+    setEditCode(role.code);
     setEditTitle(role.title);
     setEditTeam(role.team);
     setEditLocation(role.location);
@@ -321,6 +356,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
+          code: editCode.trim(),
           title: editTitle.trim(),
           team: editTeam.trim(),
           location: editLocation.trim(),
@@ -363,6 +399,117 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
         type: 'error',
         text: err instanceof Error ? err.message : 'Failed to delete role.',
       });
+    }
+  };
+
+  const handleResetRoles = async () => {
+    setActionBanner(null);
+    try {
+      const res = await fetch('/api/admin/roles/reset', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Could not reset roles.');
+      }
+      setRoles(Array.isArray(data.roles) ? data.roles : []);
+      setEditingId(null);
+      setActionBanner({ type: 'success', text: 'Restored default career roles.' });
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to reset roles.',
+      });
+    }
+  };
+
+  const handleDeleteApplication = async (app: AdminApplication) => {
+    setActionBanner(null);
+    try {
+      const res = await fetch(`/api/admin/applications/${encodeURIComponent(app.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Could not delete application.');
+      }
+      setApplications(Array.isArray(data.applications) ? data.applications : []);
+      setActionBanner({ type: 'success', text: `Deleted application ${app.id}.` });
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to delete application.',
+      });
+    }
+  };
+
+  const handleDeleteContact = async (lead: AdminContact) => {
+    setActionBanner(null);
+    try {
+      const res = await fetch(`/api/admin/contacts/${encodeURIComponent(lead.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Could not delete consultation lead.');
+      }
+      setContacts(Array.isArray(data.contacts) ? data.contacts : []);
+      setActionBanner({ type: 'success', text: `Deleted lead ${lead.id}.` });
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to delete lead.',
+      });
+    }
+  };
+
+  const handleDeleteFeedback = async (item: AdminFeedback) => {
+    setActionBanner(null);
+    try {
+      const res = await fetch(`/api/admin/feedback/${encodeURIComponent(item.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Could not delete feedback.');
+      }
+      setFeedbacks(Array.isArray(data.feedbacks) ? data.feedbacks : []);
+      setActionBanner({ type: 'success', text: `Deleted feedback from ${item.name}.` });
+    } catch (err) {
+      setActionBanner({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to delete feedback.',
+      });
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    setTestEmailResult(null);
+    setSendingTestEmail(true);
+    try {
+      const res = await fetch('/api/admin/test-email', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Could not send test email.');
+      }
+      setTestEmailResult({
+        type: 'success',
+        text: data.message || 'Test email sent successfully.',
+      });
+    } catch (err) {
+      setTestEmailResult({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to send test email.',
+      });
+    } finally {
+      setSendingTestEmail(false);
     }
   };
 
@@ -415,8 +562,8 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
             Careers & Leads Manager
           </h1>
           <p className="mt-2 max-w-2xl text-[15px] text-[var(--color-ink-secondary)]">
-            Restricted strictly to the Weblance founder. Add or edit open roles and review submitted
-            applications and consultation requests.
+            Restricted strictly to the Novesta founder. Add, edit, or delete open roles and manage
+            submitted applications, consultation leads, and payments.
           </p>
         </div>
 
@@ -431,17 +578,33 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
               <h2 className="text-[20px] font-medium">Founder Sign In</h2>
             </div>
             <p className="mt-2 text-[14px] text-[var(--color-ink-secondary)]">
-              Only the verified Weblance founder account can manage role listings.
+              Only the verified Novesta founder account can manage career listings and submissions.
             </p>
 
             {(emailOtpEnabled || passkeyEnabled) && (
               <div className="mt-5 flex gap-2 rounded-[var(--radius-xs)] border border-[var(--color-border)] bg-[var(--color-bg)] p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMethod('passkey');
+                    setAuthError('');
+                    setAuthNotice('');
+                  }}
+                  className={`flex-1 rounded-[8px] px-3 py-2 text-[13px] font-medium transition-colors ${
+                    authMethod === 'passkey'
+                      ? 'bg-[var(--color-inverse-bg)] text-[var(--color-inverse-ink)]'
+                      : 'text-[var(--color-ink-secondary)] hover:text-[var(--color-ink)]'
+                  }`}
+                >
+                  Passkey
+                </button>
                 {emailOtpEnabled && (
                   <button
                     type="button"
                     onClick={() => {
                       setAuthMethod('otp');
                       setAuthError('');
+                      setAuthNotice('');
                     }}
                     className={`flex-1 rounded-[8px] px-3 py-2 text-[13px] font-medium transition-colors ${
                       authMethod === 'otp'
@@ -452,20 +615,6 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                     Email Code
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMethod('passkey');
-                    setAuthError('');
-                  }}
-                  className={`flex-1 rounded-[8px] px-3 py-2 text-[13px] font-medium transition-colors ${
-                    authMethod === 'passkey'
-                      ? 'bg-[var(--color-inverse-bg)] text-[var(--color-inverse-ink)]'
-                      : 'text-[var(--color-ink-secondary)] hover:text-[var(--color-ink)]'
-                  }`}
-                >
-                  Passkey
-                </button>
               </div>
             )}
 
@@ -567,7 +716,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                     disabled={authLoading}
                     value={passkey}
                     onChange={(e) => setPasskey(e.target.value)}
-                    placeholder="Enter FOUNDER_ADMIN_KEY"
+                    placeholder="Enter your founder passkey"
                     className={inputClass}
                   />
                 </div>
@@ -709,9 +858,18 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
 
             {/* 2. Manage Existing Role Listings */}
             <div>
-              <h2 className="text-[22px] font-medium text-[var(--color-ink)]">
-                Published Role Listings ({roles.length})
-              </h2>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-[22px] font-medium text-[var(--color-ink)]">
+                  Published Role Listings ({roles.length})
+                </h2>
+                <button
+                  type="button"
+                  onClick={handleResetRoles}
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-full border border-[var(--color-border)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-ink-secondary)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]"
+                >
+                  Restore Default Roles
+                </button>
+              </div>
 
               <div className="mt-4 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
                 {roles.map((role) => {
@@ -719,7 +877,18 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                   return (
                     <div key={role.id} className="py-5">
                       {isEditing ? (
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                          <div>
+                            <label className="block text-[12px] font-medium text-[var(--color-ink-secondary)]">
+                              Code
+                            </label>
+                            <input
+                              type="text"
+                              value={editCode}
+                              onChange={(e) => setEditCode(e.target.value)}
+                              className={inputClass}
+                            />
+                          </div>
                           <div>
                             <label className="block text-[12px] font-medium text-[var(--color-ink-secondary)]">
                               Title
@@ -769,7 +938,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                               ))}
                             </select>
                           </div>
-                          <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
+                          <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-5">
                             <button
                               type="button"
                               disabled={savingEdit}
@@ -870,6 +1039,28 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                 >
                   Payments & Webhook ({payments.length})
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveInboxTab('feedback')}
+                  className={`min-h-[40px] rounded-full px-5 py-2 text-[14px] font-medium transition-colors ${
+                    activeInboxTab === 'feedback'
+                      ? 'bg-[var(--color-inverse-bg)] text-[var(--color-inverse-ink)]'
+                      : 'border border-[var(--color-border)] text-[var(--color-ink-secondary)] hover:text-[var(--color-ink)]'
+                  }`}
+                >
+                  Public Feedback ({feedbacks.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveInboxTab('email')}
+                  className={`min-h-[40px] rounded-full px-5 py-2 text-[14px] font-medium transition-colors ${
+                    activeInboxTab === 'email'
+                      ? 'bg-[var(--color-inverse-bg)] text-[var(--color-inverse-ink)]'
+                      : 'border border-[var(--color-border)] text-[var(--color-ink-secondary)] hover:text-[var(--color-ink)]'
+                  }`}
+                >
+                  Email & Domain
+                </button>
               </div>
 
               {activeInboxTab === 'applications' ? (
@@ -893,9 +1084,19 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                               {app.email} · Ref: {app.id}
                             </p>
                           </div>
-                          <span className="text-[12px] text-[var(--color-ink-secondary)] tabular-nums">
-                            {new Date(app.submittedAt).toLocaleString()}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-[12px] text-[var(--color-ink-secondary)] tabular-nums">
+                              {new Date(app.submittedAt).toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteApplication(app)}
+                              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3.5 py-1 text-[12px] font-medium text-[var(--color-error)] hover:border-[var(--color-error)]"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
                         </div>
                         <div className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-3 text-[14px] text-[var(--color-ink)]">
                           <p>
@@ -936,9 +1137,19 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                               {lead.phone} · {lead.email} · Plan: {lead.plan} · Ref: {lead.id}
                             </p>
                           </div>
-                          <span className="text-[12px] text-[var(--color-ink-secondary)] tabular-nums">
-                            {new Date(lead.submittedAt).toLocaleString()}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-[12px] text-[var(--color-ink-secondary)] tabular-nums">
+                              {new Date(lead.submittedAt).toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteContact(lead)}
+                              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3.5 py-1 text-[12px] font-medium text-[var(--color-error)] hover:border-[var(--color-error)]"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
                         </div>
                         <p className="mt-3 border-t border-[var(--color-border)] pt-3 text-[14px] text-[var(--color-ink)]">
                           {lead.message}
@@ -947,7 +1158,7 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                     ))}
                   </div>
                 )
-              ) : (
+              ) : activeInboxTab === 'payments' ? (
                 <div className="mt-6 space-y-6">
                   {razorpaySetup && (
                     <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5">
@@ -1021,11 +1232,161 @@ export function FounderPortal({ onBackHome, onOpenCareers }: FounderPortalProps)
                             Receipt: {pay.id} · Order: {pay.orderId}
                             {pay.paymentId ? ` · Payment: ${pay.paymentId}` : ''}
                             {pay.webhookEvent ? ` · Webhook: ${pay.webhookEvent}` : ''}
+                            {typeof pay.customerEmailSent === 'boolean'
+                              ? ` · Customer mail: ${pay.customerEmailSent ? 'Sent' : 'Pending'}`
+                              : ''}
                           </p>
                         </article>
                       ))}
                     </div>
                   )}
+                </div>
+              ) : activeInboxTab === 'feedback' ? (
+                feedbacks.length === 0 ? (
+                  <p className="py-8 text-[15px] text-[var(--color-ink-secondary)]">
+                    No public feedback published yet.
+                  </p>
+                ) : (
+                  <div className="mt-6 space-y-4">
+                    {feedbacks.map((fb) => (
+                      <article
+                        key={fb.id}
+                        className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h3 className="text-[17px] font-medium text-[var(--color-ink)]">
+                              {fb.name} · {fb.rating}/5 ★
+                            </h3>
+                            <p className="text-[13px] text-[var(--color-ink-secondary)]">
+                              {fb.business} · Ref: {fb.id}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-[12px] text-[var(--color-ink-secondary)] tabular-nums">
+                              {new Date(fb.createdAt).toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFeedback(fb)}
+                              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3.5 py-1 text-[12px] font-medium text-[var(--color-error)] hover:border-[var(--color-error)]"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-3 border-t border-[var(--color-border)] pt-3 text-[14px] text-[var(--color-ink)]">
+                          {fb.comment}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div className="mt-6 space-y-5">
+                  <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-[18px] font-medium text-[var(--color-ink)]">
+                          Resend & novesta.online Mail Configuration
+                        </h3>
+                        <p className="mt-1 text-[14px] text-[var(--color-ink-secondary)]">
+                          Live server email diagnostics and sandbox fallback status.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={sendingTestEmail}
+                        onClick={handleSendTestEmail}
+                        className="inline-flex min-h-[40px] items-center gap-2 rounded-full bg-[var(--color-inverse-bg)] px-5 py-2 text-[13px] font-medium text-[var(--color-inverse-ink)] transition-opacity hover:opacity-90 disabled:opacity-60"
+                      >
+                        <Mail className="h-4 w-4" aria-hidden="true" />
+                        <span>{sendingTestEmail ? 'Sending...' : 'Send Test Email'}</span>
+                      </button>
+                    </div>
+
+                    {testEmailResult && (
+                      <div
+                        role="status"
+                        className={`mt-4 flex items-center gap-2.5 rounded-[var(--radius-xs)] border px-4 py-3 text-[13px] ${
+                          testEmailResult.type === 'success'
+                            ? 'border-[var(--color-success)]/40 bg-[var(--color-bg)] text-[var(--color-ink)]'
+                            : 'border-[var(--color-error)]/40 bg-[var(--color-bg)] text-[var(--color-error)]'
+                        }`}
+                      >
+                        {testEmailResult.type === 'success' ? (
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--color-success)]" aria-hidden="true" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        )}
+                        <span>{testEmailResult.text}</span>
+                      </div>
+                    )}
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[var(--radius-xs)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+                        <p className="text-[12px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
+                          Active Mail Transport
+                        </p>
+                        <p className="mt-1 text-[15px] font-medium text-[var(--color-ink)]">
+                          {emailSetup?.smtpConfigured
+                            ? `Hostinger SMTP (${emailSetup.smtpHost}:${emailSetup.smtpPort || 465})`
+                            : emailSetup?.resendKeyConfigured
+                              ? 'Resend API'
+                              : 'Not configured — add SMTP_* or RESEND_API_KEY'}
+                        </p>
+                      </div>
+                      <div className="rounded-[var(--radius-xs)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+                        <p className="text-[12px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
+                          Customer Receipt Sender
+                        </p>
+                        <p className="mt-1 text-[15px] font-medium text-[var(--color-ink)]">
+                          {emailSetup?.customDomainConfigured
+                            ? 'Direct @novesta.online active (all customers)'
+                            : 'Sandbox fallback only'}
+                        </p>
+                      </div>
+                      <div className="rounded-[var(--radius-xs)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+                        <p className="text-[12px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
+                          Sender / Primary Inbox
+                        </p>
+                        <p className="mt-1 break-all font-mono text-[13px] text-[var(--color-ink)]">
+                          From: {emailSetup?.fromAddress || 'Novesta <hello@novesta.online>'}
+                          <br />
+                          To: {emailSetup?.toAddress || 'hello@novesta.online'}
+                        </p>
+                      </div>
+                      <div className="rounded-[var(--radius-xs)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+                        <p className="text-[12px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
+                          Backup / Fallback Inbox
+                        </p>
+                        <p className="mt-1 break-all font-mono text-[13px] text-[var(--color-ink)]">
+                          {emailSetup?.backupEmail || 'novesta111@gmail.com'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 rounded-[var(--radius-xs)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+                      <p className="text-[14px] font-medium text-[var(--color-ink)]">
+                        Hostinger SMTP & Razorpay Live Mail Checklist
+                      </p>
+                      <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[13px] text-[var(--color-ink-secondary)]">
+                        <li>
+                          Create <code className="font-mono text-[var(--color-ink)]">hello@novesta.online</code> in Hostinger hPanel → Emails → Email Accounts.
+                        </li>
+                        <li>
+                          Set <code className="font-mono text-[var(--color-ink)]">SMTP_HOST=smtp.hostinger.com</code>, <code className="font-mono text-[var(--color-ink)]">SMTP_PORT=465</code>, <code className="font-mono text-[var(--color-ink)]">SMTP_USER=hello@novesta.online</code>, and your mailbox password in <code className="font-mono text-[var(--color-ink)]">SMTP_PASS</code>.
+                        </li>
+                        <li>
+                          Every verified Razorpay checkout or <code className="font-mono text-[var(--color-ink)]">payment.captured</code> webhook automatically emails both the customer (receipt + included services) and <code className="font-mono text-[var(--color-ink)]">hello@novesta.online</code>.
+                        </li>
+                        <li>
+                          Keep Hostinger MX, SPF, and DKIM TXT records active in DNS Zone Editor so receipts never land in spam.
+                        </li>
+                      </ol>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

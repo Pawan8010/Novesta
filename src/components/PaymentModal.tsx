@@ -59,7 +59,12 @@ interface VerifiedReceipt {
   orderId: string;
   paymentId: string;
   planName: string;
+  billing?: string;
   amountInr: number;
+  customerEmail?: string;
+  customerEmailSent?: boolean;
+  adminEmailSent?: boolean;
+  services?: string[];
   status: string;
   paidAt: string;
 }
@@ -101,6 +106,7 @@ export function PaymentModal({ plan, onClose }: PaymentModalProps) {
     if (!plan) return;
     setError('');
     setReceipt(null);
+    void loadRazorpayScript();
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !loading && !verifying) {
         onClose();
@@ -230,7 +236,7 @@ export function PaymentModal({ plan, onClose }: PaymentModalProps) {
 
   const receiptWhatsappUrl = receipt
     ? `${siteConfig.contact.whatsappUrl}?text=${encodeURIComponent(
-        `Hi Weblance, I just completed my payment for ${receipt.planName} (${formatCurrencyValue(
+        `Hi Novesta, I just completed my payment for ${receipt.planName} (${formatCurrencyValue(
           receipt.amountInr
         )}). Receipt: ${receipt.receipt}, Payment ID: ${receipt.paymentId}.`
       )}`
@@ -303,7 +309,9 @@ export function PaymentModal({ plan, onClose }: PaymentModalProps) {
               Payment Confirmed
             </h4>
             <p className="mt-1.5 text-[14px] text-[var(--color-ink-secondary)]">
-              Thank you for choosing Weblance. Your project onboarding starts immediately.
+              {receipt.customerEmailSent && receipt.customerEmail
+                ? `Confirmation email with your receipt & included services was sent to ${receipt.customerEmail}.`
+                : 'Thank you for choosing Novesta. Your project onboarding starts immediately.'}
             </p>
 
             <div className="mt-5 space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4 text-[14px]">
@@ -336,6 +344,28 @@ export function PaymentModal({ plan, onClose }: PaymentModalProps) {
                 <span className="font-medium text-[var(--color-ink)]">{receipt.status}</span>
               </div>
             </div>
+
+            {((receipt.services && receipt.services.length > 0) || plan.features.length > 0) && (
+              <div className="mt-4 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+                <p className="mono-eyebrow text-[var(--color-ink-secondary)]">
+                  SERVICES INCLUDED
+                </p>
+                <ul className="mt-2.5 space-y-1.5 text-[13px] text-[var(--color-ink)]">
+                  {(receipt.services && receipt.services.length > 0
+                    ? receipt.services
+                    : plan.features
+                  ).map((item) => (
+                    <li key={item} className="flex items-start gap-2">
+                      <CheckCircle2
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-success)]"
+                        aria-hidden="true"
+                      />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <a

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowUpRight,
+  Check,
   CheckCircle2,
   Mail,
   MapPin,
@@ -16,6 +18,7 @@ interface ContactSectionProps {
   preselectedBusinessType?: string;
   preselectedPlan?: string;
   preselectedCity?: string;
+  preselectTick?: number;
   quotaExceeded: boolean;
 }
 
@@ -35,6 +38,7 @@ export function ContactSection({
   preselectedBusinessType,
   preselectedPlan,
   preselectedCity,
+  preselectTick = 0,
   quotaExceeded,
 }: ContactSectionProps) {
   const [values, setValues] = useState<FormValues>({
@@ -53,44 +57,54 @@ export function ContactSection({
     status: string;
     businessType: string;
   } | null>(null);
+  const [emailActionFeedback, setEmailActionFeedback] = useState(false);
+  const userEditedMessageRef = useRef(false);
 
   useEffect(() => {
     if (preselectedService) {
+      setStatus((prev) => (prev === 'success' ? 'idle' : prev));
       setValues((prev) => ({
         ...prev,
-        message: prev.message
-          ? prev.message
-          : `I would like a quote for ${preselectedService}.`,
+        message:
+          !prev.message || !userEditedMessageRef.current
+            ? `I would like a quote for ${preselectedService}.`
+            : prev.message,
       }));
     }
-  }, [preselectedService]);
+  }, [preselectedService, preselectTick]);
 
   useEffect(() => {
     if (preselectedBusinessType) {
+      setStatus((prev) => (prev === 'success' ? 'idle' : prev));
       setValues((prev) => ({
         ...prev,
         businessType: preselectedBusinessType,
       }));
     }
-  }, [preselectedBusinessType]);
+  }, [preselectedBusinessType, preselectTick]);
 
   useEffect(() => {
     if (preselectedPlan) {
+      setStatus((prev) => (prev === 'success' ? 'idle' : prev));
       setValues((prev) => ({
         ...prev,
         plan: preselectedPlan,
       }));
     }
-  }, [preselectedPlan]);
+  }, [preselectedPlan, preselectTick]);
 
   useEffect(() => {
     if (preselectedCity) {
+      setStatus((prev) => (prev === 'success' ? 'idle' : prev));
       setValues((prev) => ({
         ...prev,
-        message: `I would like to grow my business in ${preselectedCity}.`,
+        message:
+          !prev.message || !userEditedMessageRef.current
+            ? `I would like to grow my business in ${preselectedCity}.`
+            : prev.message,
       }));
     }
-  }, [preselectedCity]);
+  }, [preselectedCity, preselectTick]);
 
   const validate = (data: FormValues): FormErrors => {
     const nextErrors: FormErrors = {};
@@ -114,6 +128,9 @@ export function ContactSection({
   };
 
   const handleFieldChange = (field: keyof FormValues, val: string) => {
+    if (field === 'message') {
+      userEditedMessageRef.current = val.trim().length > 0;
+    }
     setValues((prev) => ({ ...prev, [field]: val }));
     if (errors[field]) {
       setErrors((prev) => {
@@ -169,6 +186,7 @@ export function ContactSection({
         plan: '',
         message: '',
       });
+      userEditedMessageRef.current = false;
       setErrors({});
     } catch (err) {
       setStatus('error');
@@ -181,7 +199,7 @@ export function ContactSection({
   };
 
   const whatsappText = acceptedRequest
-    ? `Hi Weblance, I submitted consultation request ${acceptedRequest.id} (${acceptedRequest.businessType}).`
+    ? `Hi Novesta, I submitted consultation request ${acceptedRequest.id} (${acceptedRequest.businessType}).`
     : preselectedCity
       ? `${siteConfig.contact.whatsappPrefillText} City: ${preselectedCity}.`
       : siteConfig.contact.whatsappPrefillText;
@@ -197,7 +215,7 @@ export function ContactSection({
     <section
       id="contact"
       aria-labelledby="contact-heading"
-      className="inverse-surface dark-signal-surface bg-[var(--color-inverse-bg)] py-16 text-[var(--color-inverse-ink)] sm:py-24"
+      className="inverse-surface dark-signal-surface scroll-mt-20 bg-[var(--color-inverse-bg)] py-16 text-[var(--color-inverse-ink)] sm:py-24"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
@@ -575,13 +593,49 @@ export function ContactSection({
                   <span>WhatsApp Chat ({siteConfig.contact.phoneDisplay})</span>
                 </a>
 
-                <a
-                  href={siteConfig.contact.emailHref}
-                  className="flex min-h-[48px] items-center gap-3 rounded-[var(--radius-xs)] border border-[var(--color-inverse-border)] px-4 py-3 text-[15px] font-medium text-[var(--color-inverse-ink)] transition-colors hover:border-[var(--color-inverse-ink)]"
-                >
-                  <Mail className="h-4 w-4 shrink-0 text-[var(--color-inverse-ink)]" aria-hidden="true" />
-                  <span className="truncate">{siteConfig.contact.email}</span>
-                </a>
+                <div className="rounded-[var(--radius-xs)] border border-[var(--color-inverse-border)] transition-colors hover:border-[var(--color-inverse-ink)]">
+                  <a
+                    href={`${siteConfig.contact.emailHref}?subject=${encodeURIComponent(
+                      'Business Digital Growth Inquiry — Novesta'
+                    )}`}
+                    onClick={() => {
+                      navigator.clipboard?.writeText(siteConfig.contact.email).catch(() => {});
+                      setEmailActionFeedback(true);
+                    }}
+                    className="flex min-h-[48px] items-center justify-between gap-3 px-4 py-3 text-[15px] font-medium text-[var(--color-inverse-ink)]"
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <Mail className="h-4 w-4 shrink-0 text-[var(--color-inverse-ink)]" aria-hidden="true" />
+                      <span className="truncate">{siteConfig.contact.email}</span>
+                    </span>
+                    <span className="shrink-0 text-[12px] text-[var(--color-inverse-muted)]">
+                      {emailActionFeedback ? (
+                        <span className="inline-flex items-center gap-1 text-[var(--color-inverse-ink)]">
+                          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                          Copied
+                        </span>
+                      ) : (
+                        'Email / Copy'
+                      )}
+                    </span>
+                  </a>
+                  {emailActionFeedback && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-inverse-border)] px-4 py-2 text-[12px] text-[var(--color-inverse-muted)]">
+                      <span>Copied {siteConfig.contact.email}</span>
+                      <a
+                        href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
+                          siteConfig.contact.email
+                        )}&su=${encodeURIComponent('Business Digital Growth Inquiry — Novesta')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-medium text-[var(--color-inverse-ink)] underline underline-offset-2"
+                      >
+                        <span>Open in Gmail</span>
+                        <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                      </a>
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex items-start gap-3 rounded-[var(--radius-xs)] border border-[var(--color-inverse-border)] px-4 py-3 text-[14px] text-[var(--color-inverse-muted)]">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-inverse-ink)]" aria-hidden="true" />

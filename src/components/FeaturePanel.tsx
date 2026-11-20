@@ -22,7 +22,7 @@ export function FeaturePanel({ onSelectServiceQuote }: FeaturePanelProps) {
     <section
       id="services"
       aria-labelledby="services-heading"
-      className="bg-[var(--color-bg)] text-[var(--color-ink)]"
+      className="scroll-mt-20 bg-[var(--color-bg)] text-[var(--color-ink)]"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="py-12 sm:py-16">

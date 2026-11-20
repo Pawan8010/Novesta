@@ -4,16 +4,30 @@ import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
 import { PromiseSection } from './components/PromiseSection';
 import { FeaturePanel } from './components/FeaturePanel';
-import { ReachSection } from './components/ReachSection';
-import { PricingSection } from './components/PricingSection';
-import { IndustriesSection } from './components/IndustriesSection';
-import { ProcessSection } from './components/ProcessSection';
-import { FounderSection } from './components/FounderSection';
-import { FeedbackSection } from './components/FeedbackSection';
-import { FaqAccordion } from './components/FaqAccordion';
 import { Footer } from './components/Footer';
 import { siteConfig } from './config/site';
 
+const ReachSection = lazy(() =>
+  import('./components/ReachSection').then((m) => ({ default: m.ReachSection }))
+);
+const PricingSection = lazy(() =>
+  import('./components/PricingSection').then((m) => ({ default: m.PricingSection }))
+);
+const IndustriesSection = lazy(() =>
+  import('./components/IndustriesSection').then((m) => ({ default: m.IndustriesSection }))
+);
+const ProcessSection = lazy(() =>
+  import('./components/ProcessSection').then((m) => ({ default: m.ProcessSection }))
+);
+const FounderSection = lazy(() =>
+  import('./components/FounderSection').then((m) => ({ default: m.FounderSection }))
+);
+const FeedbackSection = lazy(() =>
+  import('./components/FeedbackSection').then((m) => ({ default: m.FeedbackSection }))
+);
+const FaqAccordion = lazy(() =>
+  import('./components/FaqAccordion').then((m) => ({ default: m.FaqAccordion }))
+);
 const ContactSection = lazy(() =>
   import('./components/ContactSection').then((m) => ({ default: m.ContactSection }))
 );
@@ -41,12 +55,16 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<AppRoute>(() =>
     typeof window !== 'undefined' ? normalizePath(window.location.pathname) : '/'
   );
+  const [currentHash, setCurrentHash] = useState<string>(() =>
+    typeof window !== 'undefined' ? window.location.hash : ''
+  );
   const [selectedService, setSelectedService] = useState<string | undefined>(undefined);
   const [selectedBusinessType, setSelectedBusinessType] = useState<string | undefined>(
     undefined
   );
   const [selectedPlan, setSelectedPlan] = useState<string | undefined>(undefined);
   const [selectedCity, setSelectedCity] = useState<string | undefined>(undefined);
+  const [preselectTick, setPreselectTick] = useState(0);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Listen for Google Maps Platform Demo Key quota exhaustion events
@@ -60,10 +78,10 @@ export default function App() {
   useEffect(() => {
     const gaId = siteConfig.seo.ga4MeasurementId;
     if (!gaId || gaId.startsWith('G-XXXX')) return;
-    if (document.getElementById('weblance-ga4-script')) return;
+    if (document.getElementById('novesta-ga4-script')) return;
 
     const script = document.createElement('script');
-    script.id = 'weblance-ga4-script';
+    script.id = 'novesta-ga4-script';
     script.async = true;
     script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gaId)}`;
     document.head.appendChild(script);
@@ -73,13 +91,38 @@ export default function App() {
     document.head.appendChild(inline);
   }, []);
 
-  // Sync browser history navigation
+  // Sync browser history navigation & initial URL hash
   useEffect(() => {
+    const scrollToCurrentHash = () => {
+      const hash = window.location.hash;
+      if (!hash) return;
+      const el = document.querySelector(hash);
+      if (el) {
+        el.scrollIntoView({ behavior: 'auto' });
+      }
+    };
+
     const handlePopState = () => {
       setCurrentPath(normalizePath(window.location.pathname));
+      setCurrentHash(window.location.hash || '');
+      setTimeout(scrollToCurrentHash, 80);
     };
+
+    const handleHashChange = () => {
+      setCurrentHash(window.location.hash || '');
+    };
+
+    if (window.location.hash) {
+      setTimeout(scrollToCurrentHash, 120);
+      setTimeout(scrollToCurrentHash, 450);
+    }
+
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handleHashChange);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handleHashChange);
+    };
   }, []);
 
   // Update document title, meta tags, OpenGraph & canonical URL per route
@@ -138,11 +181,11 @@ export default function App() {
       setMetaTag('meta[property="og:url"]', canonicalUrl);
       setMetaTag(
         'meta[property="og:image"]',
-        `${window.location.origin}/assets/weblance-logo.jpg`
+        `${window.location.origin}/assets/aistudio/Novesta_72b3be73.png`
       );
       setMetaTag(
         'meta[name="twitter:image"]',
-        `${window.location.origin}/assets/weblance-logo.jpg`
+        `${window.location.origin}/assets/aistudio/Novesta_72b3be73.png`
       );
     }
 
@@ -160,19 +203,23 @@ export default function App() {
 
   const navigate = useCallback((path: string, hash?: string) => {
     const targetPath = normalizePath(path);
-    const targetUrl = hash ? `${targetPath}${hash}` : targetPath;
+    const nextHash = hash || '';
+    const targetUrl = nextHash ? `${targetPath}${nextHash}` : targetPath;
     if (typeof window !== 'undefined') {
       window.history.pushState({}, '', targetUrl);
     }
     setCurrentPath(targetPath);
+    setCurrentHash(nextHash);
 
-    if (hash) {
-      requestAnimationFrame(() => {
-        const el = document.querySelector(hash);
+    if (nextHash) {
+      const tryScroll = () => {
+        const el = document.querySelector(nextHash);
         if (el) {
           el.scrollIntoView({ behavior: 'auto' });
         }
-      });
+      };
+      requestAnimationFrame(tryScroll);
+      setTimeout(tryScroll, 220);
     } else if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'auto' });
     }
@@ -185,6 +232,7 @@ export default function App() {
   const handleServiceQuote = useCallback(
     (serviceTitle: string) => {
       setSelectedService(serviceTitle);
+      setPreselectTick((n) => n + 1);
       navigate('/', '#contact');
     },
     [navigate]
@@ -193,6 +241,7 @@ export default function App() {
   const handleIndustryPlan = useCallback(
     (businessType: string) => {
       setSelectedBusinessType(businessType);
+      setPreselectTick((n) => n + 1);
       navigate('/', '#contact');
     },
     [navigate]
@@ -201,6 +250,7 @@ export default function App() {
   const handlePlanSelect = useCallback(
     (planName: string) => {
       setSelectedPlan(planName);
+      setPreselectTick((n) => n + 1);
       navigate('/', '#contact');
     },
     [navigate]
@@ -209,6 +259,7 @@ export default function App() {
   const handleCitySelect = useCallback(
     (cityName: string) => {
       setSelectedCity(cityName);
+      setPreselectTick((n) => n + 1);
       navigate('/', '#contact');
     },
     [navigate]
@@ -243,7 +294,7 @@ export default function App() {
       )}
 
       <AnnouncementBar onSeePricing={() => navigate('/', '#pricing')} />
-      <Header currentPath={currentPath} onNavigate={navigate} />
+      <Header currentPath={currentPath} currentHash={currentHash} onNavigate={navigate} />
 
       <main id="main-content">
         {currentPath === '/careers' ? (
@@ -297,18 +348,60 @@ export default function App() {
             <HeroSection onConsultationClick={scrollToContact} />
             <PromiseSection onConsultationClick={scrollToContact} />
             <FeaturePanel onSelectServiceQuote={handleServiceQuote} />
-            <ReachSection onGrowInCity={handleCitySelect} />
-            <PricingSection onSelectPlan={handlePlanSelect} />
-            <IndustriesSection onSelectIndustry={handleIndustryPlan} />
-            <ProcessSection />
-            <FounderSection />
-            <FeedbackSection />
-            <FaqAccordion />
+            <Suspense
+              fallback={
+                <section
+                  id="reach"
+                  className="scroll-mt-20 min-h-[540px] border-y border-[var(--color-globe-hairline)] bg-[var(--color-surface-inverse)]"
+                />
+              }
+            >
+              <ReachSection onGrowInCity={handleCitySelect} />
+            </Suspense>
+            <Suspense
+              fallback={
+                <section
+                  id="pricing"
+                  className="scroll-mt-20 min-h-[560px] bg-[var(--color-bg)]"
+                />
+              }
+            >
+              <PricingSection onSelectPlan={handlePlanSelect} />
+            </Suspense>
+            <Suspense fallback={<div className="min-h-[420px] bg-[var(--color-bg)]" />}>
+              <IndustriesSection onSelectIndustry={handleIndustryPlan} />
+            </Suspense>
+            <Suspense fallback={<div className="min-h-[420px] bg-[var(--color-bg-subtle)]" />}>
+              <ProcessSection />
+            </Suspense>
+            <Suspense
+              fallback={
+                <section
+                  id="about"
+                  className="scroll-mt-20 min-h-[280px] border-b border-[var(--color-border)] bg-[var(--color-bg)]"
+                />
+              }
+            >
+              <FounderSection />
+            </Suspense>
+            <Suspense
+              fallback={
+                <section
+                  id="feedback"
+                  className="scroll-mt-20 min-h-[440px] border-b border-[var(--color-border)] bg-[var(--color-bg)]"
+                />
+              }
+            >
+              <FeedbackSection />
+            </Suspense>
+            <Suspense fallback={<div className="min-h-[360px] bg-[var(--color-bg-subtle)]" />}>
+              <FaqAccordion />
+            </Suspense>
             <Suspense
               fallback={
                 <div
                   id="contact"
-                  className="bg-[var(--color-inverse-bg)] py-24 text-center text-[15px] text-[var(--color-inverse-muted)]"
+                  className="scroll-mt-20 bg-[var(--color-inverse-bg)] py-24 text-center text-[15px] text-[var(--color-inverse-muted)]"
                 >
                   Loading contact form...
                 </div>
@@ -319,6 +412,7 @@ export default function App() {
                 preselectedBusinessType={selectedBusinessType}
                 preselectedPlan={selectedPlan}
                 preselectedCity={selectedCity}
+                preselectTick={preselectTick}
                 quotaExceeded={quotaExceeded}
               />
             </Suspense>

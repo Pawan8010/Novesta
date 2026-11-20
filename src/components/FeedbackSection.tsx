@@ -1,41 +1,39 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, Star } from 'lucide-react';
+import { AlertCircle, CheckCircle2, MessageSquareQuote, Star } from 'lucide-react';
 import { RollButton } from './RollButton';
 
-interface FeedbackItem {
+interface PublicFeedbackItem {
   id: string;
   name: string;
   business: string;
   rating: number;
   comment: string;
   createdAt: string;
-  isSample?: boolean;
 }
 
 export function FeedbackSection() {
-  const [items, setItems] = useState<FeedbackItem[]>([]);
-  const [loadingList, setLoadingList] = useState(true);
-
   const [name, setName] = useState('');
   const [business, setBusiness] = useState('');
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
 
+  const [items, setItems] = useState<PublicFeedbackItem[]>([]);
+  const [loadingList, setLoadingList] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [feedbackMsg, setFeedbackMsg] = useState('');
 
   useEffect(() => {
     let active = true;
-    fetch('/api/feedback')
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load'))))
+    fetch('/api/feedback', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('Failed to load feedback'))))
       .then((data) => {
         if (active && Array.isArray(data.items)) {
           setItems(data.items);
         }
       })
       .catch(() => {
-        if (active) setItems([]);
+        // Leave empty list if offline
       })
       .finally(() => {
         if (active) setLoadingList(false);
@@ -95,11 +93,16 @@ export function FeedbackSection() {
         throw new Error(payload.error || 'Could not submit feedback right now.');
       }
 
-      if (payload.item) {
-        setItems((prev) => [payload.item, ...prev]);
+      if (Array.isArray(payload.items)) {
+        setItems(payload.items);
+      } else if (payload.item) {
+        setItems((prev) => [payload.item as PublicFeedbackItem, ...prev]);
       }
+
       setStatus('success');
-      setFeedbackMsg(payload.message || 'Thank you for sharing your feedback.');
+      setFeedbackMsg(
+        payload.message || 'Thank you! Your feedback is now published on the website.'
+      );
       setName('');
       setBusiness('');
       setRating(5);
@@ -114,6 +117,12 @@ export function FeedbackSection() {
     }
   };
 
+  const totalReviews = items.length;
+  const averageRating =
+    totalReviews > 0
+      ? (items.reduce((sum, item) => sum + item.rating, 0) / totalReviews).toFixed(1)
+      : null;
+
   const inputClass =
     'mt-2 block w-full min-h-[44px] rounded-[var(--radius-xs)] border border-[var(--color-inverse-border)] bg-[var(--color-inverse-bg)] px-4 py-2.5 text-[15px] text-[var(--color-inverse-ink)] placeholder:text-[var(--color-inverse-muted)] transition-colors hover:border-[var(--color-inverse-ink)] disabled:cursor-not-allowed disabled:opacity-60';
 
@@ -121,35 +130,35 @@ export function FeedbackSection() {
     <section
       id="feedback"
       aria-labelledby="feedback-heading"
-      className="border-b border-[var(--color-border)] bg-[var(--color-bg)] py-16 text-[var(--color-ink)] sm:py-24"
+      className="scroll-mt-20 border-b border-[var(--color-border)] bg-[var(--color-bg)] py-16 text-[var(--color-ink)] sm:py-24"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div className="max-w-3xl">
             <p className="mono-eyebrow text-[var(--color-ink-secondary)]">
-              FEEDBACK
+              CLIENT FEEDBACK
             </p>
             <h2
               id="feedback-heading"
               className="heading-section mt-3 text-[var(--color-ink)]"
             >
-              Share your experience with Weblance.
+              Share your experience with Novesta.
             </h2>
           </div>
           <p className="max-w-md text-[16px] leading-6 text-[var(--color-ink-secondary)]">
-            Worked with us on a website, Google Maps profile, or automation? Leave direct
-            feedback below—it publishes straight to our community wall.
+            Worked with us on a website, Google Maps profile, or automation? Leave a public
+            review below—it appears live on the page.
           </p>
         </div>
 
         <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-10">
-          {/* Left: High-Contrast Black Feedback Form */}
+          {/* Left: High-Contrast Black Public Feedback Form */}
           <div className="inverse-surface rounded-[var(--radius-2xl)] border border-[var(--color-inverse-bg)] bg-[var(--color-inverse-bg)] p-6 text-[var(--color-inverse-ink)] shadow-[var(--shadow-2)] sm:p-8 lg:col-span-5">
             <h3 className="text-[20px] font-medium tracking-tight text-[var(--color-inverse-ink)]">
-              Leave Feedback
+              Post Public Feedback
             </h3>
             <p className="mt-1.5 text-[14px] text-[var(--color-inverse-muted)]">
-              Takes less than a minute.
+              Your review is published live on Novesta and visible to all visitors.
             </p>
 
             <form onSubmit={handleSubmit} noValidate className="mt-6">
@@ -174,41 +183,43 @@ export function FeedbackSection() {
                 )}
               </div>
 
-              <div>
-                <label
-                  htmlFor="feedback-name"
-                  className="block text-[14px] font-medium text-[var(--color-inverse-ink)]"
-                >
-                  Your Name <span aria-hidden="true">*</span>
-                </label>
-                <input
-                  id="feedback-name"
-                  type="text"
-                  required
-                  disabled={submitting}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
-                  className={inputClass}
-                />
-              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="feedback-name"
+                    className="block text-[14px] font-medium text-[var(--color-inverse-ink)]"
+                  >
+                    Your Name <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="feedback-name"
+                    type="text"
+                    required
+                    disabled={submitting}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Your name"
+                    className={inputClass}
+                  />
+                </div>
 
-              <div className="mt-4">
-                <label
-                  htmlFor="feedback-business"
-                  className="block text-[14px] font-medium text-[var(--color-inverse-ink)]"
-                >
-                  Business or Role
-                </label>
-                <input
-                  id="feedback-business"
-                  type="text"
-                  disabled={submitting}
-                  value={business}
-                  onChange={(e) => setBusiness(e.target.value)}
-                  placeholder="e.g., Hotel / Cafe / Clinic Owner"
-                  className={inputClass}
-                />
+                <div>
+                  <label
+                    htmlFor="feedback-business"
+                    className="block text-[14px] font-medium text-[var(--color-inverse-ink)]"
+                  >
+                    Business or Role
+                  </label>
+                  <input
+                    id="feedback-business"
+                    type="text"
+                    disabled={submitting}
+                    value={business}
+                    onChange={(e) => setBusiness(e.target.value)}
+                    placeholder="e.g., Hotel / Cafe / Clinic Owner"
+                    className={inputClass}
+                  />
+                </div>
               </div>
 
               <div className="mt-4">
@@ -266,7 +277,7 @@ export function FeedbackSection() {
                   disabled={submitting}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
-                  placeholder="Tell us what worked well or what we can improve..."
+                  placeholder="Share your experience with our team..."
                   className={`${inputClass} min-h-[112px] resize-y`}
                 />
               </div>
@@ -276,7 +287,7 @@ export function FeedbackSection() {
                   type="submit"
                   loading={submitting}
                   disabled={submitting}
-                  label={submitting ? 'Submitting Feedback...' : 'Submit Feedback'}
+                  label={submitting ? 'Publishing...' : 'Publish Feedback'}
                   variant="inverse"
                   className="w-full"
                 />
@@ -284,80 +295,90 @@ export function FeedbackSection() {
             </form>
           </div>
 
-          {/* Right: Live Feedback Feed */}
-          <div className="lg:col-span-7">
-            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
-              <h3 className="text-[18px] font-medium text-[var(--color-ink)]">
-                Recent Feedback
-              </h3>
-              <span className="text-[13px] text-[var(--color-ink-secondary)] tabular-nums">
-                {items.length} {items.length === 1 ? 'entry' : 'entries'}
-              </span>
-            </div>
+          {/* Right: Live Published Feedback Wall */}
+          <div className="flex flex-col lg:col-span-7">
+            <div className="flex h-full flex-col rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 sm:p-8">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border)] pb-4">
+                <div className="flex items-center gap-2.5 text-[var(--color-ink)]">
+                  <MessageSquareQuote className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  <h3 className="text-[18px] font-medium text-[var(--color-ink)]">
+                    Published Feedback ({totalReviews})
+                  </h3>
+                </div>
 
-            {loadingList ? (
-              <div className="mt-6 space-y-4">
-                {[0, 1].map((skeleton) => (
-                  <div
-                    key={skeleton}
-                    className="h-32 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-bg-subtle)]"
-                  />
-                ))}
+                {averageRating && (
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] px-3.5 py-1 text-[13px] font-medium text-[var(--color-ink)] tabular-nums">
+                    <Star className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                    <span>{averageRating} / 5 average</span>
+                  </div>
+                )}
               </div>
-            ) : items.length === 0 ? (
-              <div className="mt-6 rounded-[var(--radius-2xl)] border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-8 text-center">
-                <p className="text-[15px] text-[var(--color-ink-secondary)]">
-                  No feedback entries yet. Be the first to share your thoughts.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-6 grid grid-cols-1 gap-4">
-                {items.map((item) => (
-                  <article
-                    key={item.id}
-                    className="novesta-glass-subtle p-6 transition-colors hover:border-[var(--color-ink)]"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-1" aria-label={`Rated ${item.rating} out of 5`}>
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <Star
-                            key={star}
-                            className={`h-4 w-4 ${
-                              star <= item.rating
-                                ? 'text-[var(--color-ink)]'
-                                : 'text-[var(--color-border)]'
-                            }`}
-                            fill={star <= item.rating ? 'currentColor' : 'none'}
-                            aria-hidden="true"
-                          />
-                        ))}
-                        <span className="ml-2 text-[13px] font-medium text-[var(--color-ink-secondary)] tabular-nums">
-                          {item.rating}.0
-                        </span>
+
+              {loadingList ? (
+                <div className="py-12 text-center text-[15px] text-[var(--color-ink-secondary)]">
+                  Loading published reviews...
+                </div>
+              ) : items.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
+                  <p className="text-[16px] font-medium text-[var(--color-ink)]">
+                    No feedback published yet
+                  </p>
+                  <p className="mt-1.5 max-w-sm text-[14px] leading-6 text-[var(--color-ink-secondary)]">
+                    Be the first to share your experience using the form—submitted reviews appear
+                    right here immediately.
+                  </p>
+                </div>
+              ) : (
+                <div
+                  aria-label="All client feedback"
+                  className="mt-5 max-h-[520px] space-y-4 overflow-y-auto pr-1"
+                >
+                  {items.map((item) => (
+                    <article
+                      key={item.id}
+                      className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] p-5"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <h4 className="text-[16px] font-medium text-[var(--color-ink)]">
+                            {item.name}
+                          </h4>
+                          <p className="text-[13px] text-[var(--color-ink-secondary)]">
+                            {item.business}
+                          </p>
+                        </div>
+
+                        <div
+                          className="flex items-center gap-0.5 text-[var(--color-ink)]"
+                          aria-label={`Rated ${item.rating} out of 5 stars`}
+                        >
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              className="h-3.5 w-3.5"
+                              fill={star <= item.rating ? 'currentColor' : 'none'}
+                              aria-hidden="true"
+                            />
+                          ))}
+                        </div>
                       </div>
 
-                      <span className="text-[12px] text-[var(--color-ink-secondary)]">
+                      <p className="mt-3 text-[15px] leading-6 text-[var(--color-ink)]">
+                        {item.comment}
+                      </p>
+
+                      <p className="mt-3 text-[12px] text-[var(--color-ink-tertiary)] tabular-nums">
                         {new Date(item.createdAt).toLocaleDateString('en-IN', {
+                          year: 'numeric',
                           month: 'short',
                           day: 'numeric',
-                          year: 'numeric',
                         })}
-                      </span>
-                    </div>
-
-                    <p className="mt-3 text-[16px] leading-6 text-[var(--color-ink)]">
-                      &ldquo;{item.comment}&rdquo;
-                    </p>
-
-                    <div className="mt-4 flex flex-wrap items-center gap-x-2 text-[13px] text-[var(--color-ink-secondary)]">
-                      <span className="font-medium text-[var(--color-ink)]">{item.name}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{item.business}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -1,6 +1,8 @@
 import { ArrowRight } from 'lucide-react';
 import { siteConfig } from '../config/site';
 import { DrawingHairline } from './DrawingHairline';
+import { HeroParticlesCanvas } from './HeroParticlesCanvas';
+import { NovestaLogo } from './NovestaLogo';
 
 interface HeroSectionProps {
   onConsultationClick: () => void;
@@ -15,19 +17,13 @@ export function HeroSection({ onConsultationClick }: HeroSectionProps) {
     <section
       id="hero"
       aria-labelledby="hero-heading"
-      className="bg-[var(--color-bg)] pt-14 text-[var(--color-ink)] sm:pt-24 lg:pt-28"
+      className="relative overflow-hidden bg-[var(--color-bg)] pt-16 text-[var(--color-ink)] sm:pt-28 lg:pt-32"
     >
-      <div className="mx-auto flex max-w-5xl flex-col items-center px-4 text-center sm:px-6 lg:px-8">
-        {/* Small Black Weblance Logo Badge */}
-        <div className="inline-flex h-11 w-[156px] items-center justify-center overflow-hidden rounded-[var(--radius-xs)] bg-[var(--color-logo-badge)] px-2.5 sm:h-12 sm:w-[172px]">
-          <img
-            src={siteConfig.brand.logoPath}
-            alt={siteConfig.brand.logoAlt}
-            className="h-full w-full scale-[1.2] object-cover object-center"
-            width={172}
-            height={48}
-          />
-        </div>
+      <HeroParticlesCanvas />
+
+      <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center px-4 text-center sm:px-6 lg:px-8">
+        {/* Sleek Centered Novesta Emblem & Wordmark Lockup */}
+        <NovestaLogo variant="hero" />
 
         {/* Giant Centered Display Headline */}
         <h1
@@ -63,7 +59,7 @@ export function HeroSection({ onConsultationClick }: HeroSectionProps) {
         </div>
       </div>
 
-      <DrawingHairline className="mt-14 sm:mt-24 lg:mt-28" />
+      <DrawingHairline className="relative z-10 mt-16 sm:mt-24 lg:mt-28" />
     </section>
   );
 }

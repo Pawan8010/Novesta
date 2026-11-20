@@ -37,6 +37,14 @@
   --color-confetti-tint-ink: #1d4ed8;
   --color-confetti-tint-ink-inverse: #bfdbfe;
 
+  /* Start page hero interactive particle field tokens */
+  --color-particle-blue: #4285f4;
+  --color-particle-indigo: #5e35b1;
+  --color-particle-red: #ea4335;
+  --color-particle-amber: #fbbc04;
+  --color-particle-teal: #0f9d58;
+  --color-particle-slate: #5f6368;
+
   /* Accessible semantic feedback tokens */
   --color-error: #b3261e;
   --color-error-inverse: #ffb4ab;

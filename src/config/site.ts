@@ -1,4 +1,4 @@
-import weblanceLogo from '../assets/images/weblance_brand_logo_1795111565055.jpg';
+// Novesta brand logo served from /public/assets/aistudio/Novesta_72b3be73.png
 
 export interface ServiceItem {
   id: string;
@@ -127,20 +127,22 @@ export interface CareerRole {
 
 export const siteConfig = {
   brand: {
-    name: 'Weblance',
+    name: 'Novesta',
     tagline: 'Grow Online. Sell More. Rank Higher.',
-    logoPath: weblanceLogo,
-    logoAlt: 'Weblance wordmark with upward lance arrow on black background',
+    iconPath: '/assets/novesta-mark.webp',
+    iconAlt: 'Novesta circular growth monogram logo',
+    logoPath: '/assets/aistudio/Novesta_72b3be73.png',
+    logoAlt: 'Novesta wordmark logo on black background',
     copyrightYear: 2026,
   },
   seo: {
-    title: 'Weblance — Grow Online. Sell More. Rank Higher.',
+    title: 'Novesta — Grow Online. Sell More. Rank Higher.',
     description:
-      'Weblance takes offline businesses online with fast websites, ordering and booking systems, Google Maps optimization, SEO, and AI automation.',
-    canonicalBaseUrl: 'https://weblance.in', // PLACEHOLDER: Replace with your production domain
-    ga4MeasurementId: import.meta.env.VITE_GA4_MEASUREMENT_ID || 'G-XXXXXXXXXX', // PLACEHOLDER: Replace with GA4 ID
+      'Novesta takes offline businesses online with fast websites, ordering and booking systems, Google Maps optimization, SEO, and AI automation.',
+    canonicalBaseUrl: 'https://novesta.online',
+    ga4MeasurementId: import.meta.env.VITE_GA4_MEASUREMENT_ID || 'G-XXXXXXXXXX',
     googleSiteVerification:
-      import.meta.env.VITE_GSC_VERIFICATION || 'REPLACE_WITH_GOOGLE_SEARCH_CONSOLE_TOKEN', // PLACEHOLDER
+      import.meta.env.VITE_GSC_VERIFICATION || 'REPLACE_WITH_GOOGLE_SEARCH_CONSOLE_TOKEN',
   },
   contact: {
     phoneDisplay: '+91 8010927311',
@@ -148,9 +150,9 @@ export const siteConfig = {
     whatsappNumber: '918010927311',
     whatsappUrl: 'https://wa.me/918010927311',
     whatsappPrefillText:
-      'Hi Weblance, I would like a free digital growth consultation for my business.',
-    email: 'novesta111@gmail.com',
-    emailHref: 'mailto:novesta111@gmail.com',
+      'Hi Novesta, I would like a free digital growth consultation for my business.',
+    email: 'hello@novesta.online',
+    emailHref: 'mailto:hello@novesta.online',
     /**
      * Single config source for business address and Google Map coordinates.
      */
@@ -708,11 +710,12 @@ export const siteConfig = {
   founder: {
     name: 'Pawan Rajput',
     role: 'Founder & CEO',
-    email: 'rajputpawan9765@gmail.com',
-    emailHref: 'mailto:rajputpawan9765@gmail.com',
+    email: 'novesta111@gmail.com',
+    emailHref: 'mailto:novesta111@gmail.com',
+    whatsappUrl: 'https://wa.me/919765574216',
     teamLine:
       'Leading a focused in-house team of web engineers, AI automation builders, and search strategists.',
-    bio: 'Pawan founded Weblance to bridge the gap between strong offline businesses and modern digital engineering.',
+    bio: 'Pawan founded Novesta to bridge the gap between strong offline businesses and modern digital engineering.',
     teamStrip: [
       {
         role: 'Full-Stack & Web Engineers',
@@ -729,7 +732,7 @@ export const siteConfig = {
     ],
   },
   careers: {
-    eyebrow: 'CAREERS AT WEBLANCE',
+    eyebrow: 'CAREERS AT NOVESTA',
     headlineLine1: 'Build real systems.',
     headlineLine2: 'Ship measurable growth.',
     subheadline:
@@ -789,7 +792,7 @@ export const siteConfig = {
           'A local business gets website visits but zero WhatsApp inquiries or orders. What three fixes would you ship first?',
       },
     ],
-    confirmLabel: 'I read the expectations above and want to build at Weblance.',
+    confirmLabel: 'I read the expectations above and want to build at Novesta.',
   },
   /**
    * PLACEHOLDER TESTIMONIALS:
@@ -809,7 +812,7 @@ export const siteConfig = {
     {
       id: 't2',
       quote:
-        'Sample placeholder quote: Weblance rebuilt our hotel website with a fast room booking flow and aligned our MakeMyTrip and Google Business listings within three weeks.',
+        'Sample placeholder quote: Novesta rebuilt our hotel website with a fast room booking flow and aligned our MakeMyTrip and Google Business listings within three weeks.',
       author: 'Client Name Placeholder',
       role: 'Managing Director',
       business: 'Boutique Hotel Partner (Sample)',
@@ -830,7 +833,7 @@ export const siteConfig = {
   faqs: [
     {
       id: 'pricing',
-      question: 'How is Weblance pricing structured?',
+      question: 'How is Novesta pricing structured?',
       answer:
         'We keep pricing straightforward: fixed-scope project quotes for websites, online ordering systems, and booking products, plus transparent monthly retainers for ongoing SEO, Google Maps optimization, social media, and automation. Every proposal lists exact deliverables upfront.',
     },
@@ -900,6 +903,6 @@ export function formatCurrencyValue(
 export function buildPlanWhatsappUrl(plan: PricingPlan): string {
   const formattedPrice = formatCurrencyValue(plan.price);
   const billingSuffix = plan.billing === 'per year' ? '/year' : ` ${plan.billing}`;
-  const text = `Hi Weblance, I'm interested in the ${plan.name} plan (${formattedPrice}${billingSuffix}).`;
+  const text = `Hi Novesta, I'm interested in the ${plan.name} plan (${formattedPrice}${billingSuffix}).`;
   return `${siteConfig.contact.whatsappUrl}?text=${encodeURIComponent(text)}`;
 }

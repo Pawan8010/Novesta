@@ -55,7 +55,7 @@ export function ReachSection({ onGrowInCity }: ReachSectionProps) {
     <section
       id="reach"
       aria-labelledby="reach-heading"
-      className="dark-signal-surface border-y border-[var(--color-globe-hairline)] bg-[var(--color-surface-inverse)] py-16 text-[var(--color-inverse-ink)] sm:py-24"
+      className="dark-signal-surface scroll-mt-20 border-y border-[var(--color-globe-hairline)] bg-[var(--color-surface-inverse)] py-16 text-[var(--color-inverse-ink)] sm:py-24"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-x-12 lg:gap-y-6">

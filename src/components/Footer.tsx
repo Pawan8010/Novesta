@@ -1,5 +1,7 @@
-import { ArrowUp, Facebook, Instagram, Linkedin, Twitter } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowUp, Check, Facebook, Instagram, Linkedin, Twitter } from 'lucide-react';
 import { siteConfig } from '../config/site';
+import { NovestaLogo } from './NovestaLogo';
 
 interface FooterProps {
   onNavigate: (path: string, hash?: string) => void;
@@ -13,6 +15,8 @@ const socialIconMap: Record<string, typeof Instagram> = {
 };
 
 export function Footer({ onNavigate }: FooterProps) {
+  const [emailCopied, setEmailCopied] = useState(false);
+
   const handleLinkClick = (
     event: React.MouseEvent<HTMLAnchorElement>,
     path: string,
@@ -55,10 +59,32 @@ export function Footer({ onNavigate }: FooterProps) {
             </p>
             <a
               href={siteConfig.contact.emailHref}
-              className="mt-1.5 inline-flex min-h-[44px] items-center break-all text-[18px] font-medium text-[var(--color-ink)] transition-colors hover:text-[var(--color-ink-secondary)]"
+              onClick={() => {
+                navigator.clipboard?.writeText(siteConfig.contact.email).catch(() => {});
+                setEmailCopied(true);
+              }}
+              className="mt-1.5 inline-flex min-h-[44px] items-center gap-2 break-all text-[18px] font-medium text-[var(--color-ink)] transition-colors hover:text-[var(--color-ink-secondary)]"
             >
-              {siteConfig.contact.email}
+              <span>{siteConfig.contact.email}</span>
+              {emailCopied && (
+                <Check className="h-4 w-4 shrink-0 text-[var(--color-success)]" aria-hidden="true" />
+              )}
             </a>
+            {emailCopied && (
+              <p className="mt-0.5 text-[12px] text-[var(--color-ink-secondary)]">
+                Copied ·{' '}
+                <a
+                  href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
+                    siteConfig.contact.email
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-[var(--color-ink)] underline underline-offset-2"
+                >
+                  Open in Gmail
+                </a>
+              </p>
+            )}
           </div>
 
           <div className="sm:col-span-2 lg:col-span-1">
@@ -72,10 +98,10 @@ export function Footer({ onNavigate }: FooterProps) {
         </div>
       </div>
 
-      {/* Signature Full-Width Responsive Vector WEBLANCE Wordmark (never clips on mobile) */}
+      {/* Signature Full-Width Responsive Vector NOVESTA Wordmark (never clips on mobile) */}
       <div
         role="img"
-        aria-label="Weblance"
+        aria-label="Novesta"
         className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8"
       >
         <svg
@@ -97,7 +123,7 @@ export function Footer({ onNavigate }: FooterProps) {
               letterSpacing: '-0.02em',
             }}
           >
-            WEBLANCE
+            NOVESTA
           </text>
         </svg>
       </div>
@@ -108,22 +134,15 @@ export function Footer({ onNavigate }: FooterProps) {
         className="border-t border-[var(--color-border)] bg-[var(--color-bg-subtle)]/50"
       >
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 px-4 py-8 text-center sm:px-6 lg:flex-row lg:items-center lg:px-8 lg:py-7 lg:text-left">
-          {/* Left: Dark-badged Weblance logo + copyright */}
+          {/* Left: Dark-badged Novesta monogram + copyright */}
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
             <a
               href="/"
               onClick={(e) => handleLinkClick(e, '/')}
-              className="inline-flex h-11 w-[144px] items-center justify-center overflow-hidden rounded-full border border-[var(--color-logo-badge)] bg-[var(--color-logo-badge)] px-2.5 transition-opacity hover:opacity-90"
-              aria-label="Weblance home"
+              className="inline-flex shrink-0 items-center rounded-full transition-opacity hover:opacity-95"
+              aria-label="Novesta home"
             >
-              <img
-                src={siteConfig.brand.logoPath}
-                alt={siteConfig.brand.logoAlt}
-                loading="lazy"
-                className="h-full w-full scale-[1.18] object-cover object-center"
-                width={144}
-                height={44}
-              />
+              <NovestaLogo variant="footer" />
             </a>
             <p className="text-[13px] text-[var(--color-ink-secondary)]">
               &copy; {siteConfig.brand.copyrightYear} {siteConfig.brand.name}. Founded by{' '}

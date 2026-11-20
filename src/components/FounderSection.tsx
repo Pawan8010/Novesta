@@ -1,18 +1,24 @@
-import { ArrowUpRight, Mail, MessageCircle } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowUpRight, Check, Mail, MessageCircle } from 'lucide-react';
 import { siteConfig } from '../config/site';
 
 export function FounderSection() {
   const { founder, contact } = siteConfig;
+  const [emailCopied, setEmailCopied] = useState(false);
 
-  const whatsappHref = `${contact.whatsappUrl}?text=${encodeURIComponent(
+  const whatsappHref = `${founder.whatsappUrl}?text=${encodeURIComponent(
     contact.whatsappPrefillText
   )}`;
+
+  const gmailComposeHref = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
+    founder.email
+  )}&su=${encodeURIComponent('Direct Inquiry for Novesta Founder')}`;
 
   return (
     <section
       id="about"
       aria-labelledby="about-heading"
-      className="border-b border-[var(--color-border)] bg-[var(--color-bg)] py-16 text-[var(--color-ink)] sm:py-24"
+      className="scroll-mt-20 border-b border-[var(--color-border)] bg-[var(--color-bg)] py-16 text-[var(--color-ink)] sm:py-24"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
@@ -49,12 +55,36 @@ export function FounderSection() {
 
             <a
               href={founder.emailHref}
+              onClick={() => {
+                navigator.clipboard?.writeText(founder.email).catch(() => {});
+                setEmailCopied(true);
+              }}
               className="inline-flex min-h-[44px] max-w-full items-center justify-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-5 py-2.5 text-[14px] font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-ink)] hover:bg-[var(--color-bg)]"
             >
-              <Mail className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span className="truncate">{founder.email}</span>
+              {emailCopied ? (
+                <Check className="h-4 w-4 shrink-0 text-[var(--color-success)]" aria-hidden="true" />
+              ) : (
+                <Mail className="h-4 w-4 shrink-0" aria-hidden="true" />
+              )}
+              <span className="truncate">
+                {emailCopied ? `Copied ${founder.email}` : founder.email}
+              </span>
             </a>
           </div>
+
+          {emailCopied && (
+            <p className="mt-3 text-[13px] text-[var(--color-ink-secondary)]">
+              Address copied to clipboard.{' '}
+              <a
+                href={gmailComposeHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-[var(--color-ink)] underline underline-offset-2"
+              >
+                Open in Gmail
+              </a>
+            </p>
+          )}
         </div>
       </div>
     </section>
